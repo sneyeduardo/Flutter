@@ -434,6 +434,43 @@ app.put('/api/usuarios/:id/admin-edit', async (req, res) => {
         res.status(500).json({ error: 'Error al actualizar datos del usuario' });
     }
 });
+// ==========================================
+// NUEVO: ENDPOINT SEGURO DE SUBIDA EN BASE64
+// ==========================================
+app.post('/api/tickets/:id/multimedia-base64', async (req, res) => {
+    try {
+        const ticketId = req.params.id;
+        const { fotoBase64 } = req.body;
+
+        if (!fotoBase64) {
+            return res.status(400).json({ error: 'No se recibió ninguna imagen.' });
+        }
+
+        console.log(`Subiendo imagen a Cloudinary para el ticket ${ticketId}...`);
+
+        // 1. Subir a Cloudinary directamente (sin Multer)
+        const resultadoCloudinary = await cloudinary.uploader.upload(fotoBase64, {
+            folder: 'Fotos', // Tu carpeta en Cloudinary
+            resource_type: 'image'
+        });
+
+        const urlCloudinary = resultadoCloudinary.secure_url;
+        console.log(`¡Subida a Cloudinary exitosa! URL: ${urlCloudinary}`);
+
+        // 2. Guardar en MySQL
+        await pool.execute(
+            'INSERT INTO fotos_inspeccion (id_ticket, ruta_foto) VALUES (?, ?)',
+            [ticketId, urlCloudinary]
+        );
+
+        console.log('¡URL guardada en MySQL!');
+        res.status(200).json({ success: true, message: 'Foto guardada correctamente' });
+
+    } catch (error) {
+        console.error('Error procesando imagen Base64:', error);
+        res.status(500).json({ error: 'Error del servidor al subir a Cloudinary' });
+    }
+});
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Servidor de API corriendo en el puerto ${PORT}`);
