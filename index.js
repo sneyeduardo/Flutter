@@ -51,39 +51,67 @@ const pool = mysql.createPool({
 // ENDPOINTS MULTIMEDIA (CLOUDINARY)
 // ==========================================
 
-// Endpoint: Guardar fotos y video en Cloudinary + MySQL
-app.post('/api/tickets/:id/multimedia', upload.fields([
-    { name: 'foto', maxCount: 4 }, 
-    { name: 'video', maxCount: 1 }
-]), async (req, res) => {
-    try {
-        const ticketId = req.params.id;
+// ==========================================
+// ENDPOINTS MULTIMEDIA (CLOUDINARY)
+// ==========================================
 
-        // 1. Guardar Fotos
-        if (req.files['foto']) {
-            for (let foto of req.files['foto']) {
-                await pool.execute(
-                    'INSERT INTO fotos_inspeccion (id_ticket, ruta_foto) VALUES (?, ?)',
-                    [ticketId, foto.path] // foto.path contiene la URL de Cloudinary
-                );
-            }
+// Endpoint: Guardar fotos y video en Cloudinary + MySQL (CON MANEJO DE ERRORES MULTER)
+app.post('/api/tickets/:id/multimedia', (req, res) => {
+    // Envolvemos la carga de multer en una función para capturar sus errores
+    upload.fields([
+        { name: 'foto', maxCount: 4 }, 
+        { name: 'video', maxCount: 1 }
+    ])(req, res, async function (err) {
+        
+        // 1. CAPTURAR ERRORES DE MULTER (Ej. Archivo muy grande, error de red)
+        if (err instanceof multer.MulterError) {
+            console.error('ERROR DE MULTER:', err);
+            return res.status(500).json({ error: `Error de carga (Multer): ${err.message}` });
+        } else if (err) {
+            console.error('ERROR DESCONOCIDO DURANTE LA CARGA:', err);
+            return res.status(500).json({ error: `Error en el servidor al subir el archivo: ${err.message}` });
         }
 
-        // 2. Guardar Video (se guarda en la misma columna ruta_foto)
-        if (req.files['video']) {
-            for (let video of req.files['video']) {
-                await pool.execute(
-                    'INSERT INTO fotos_inspeccion (id_ticket, ruta_foto) VALUES (?, ?)',
-                    [ticketId, video.path] // video.path contiene la URL de Cloudinary
-                );
-            }
-        }
+        // Si pasamos Multer sin errores, significa que Cloudinary recibió los archivos.
+        // Ahora guardamos las URLs en MySQL.
+        try {
+            const ticketId = req.params.id;
+            console.log(`Recibiendo multimedia para el ticket ${ticketId}...`);
 
-        res.status(200).json({ success: true, message: 'Evidencias guardadas en fotos_inspeccion' });
-    } catch (error) {
-        console.error('Error al subir multimedia:', error);
-        res.status(500).json({ error: 'Error interno guardando evidencias' });
-    }
+            // Verificamos si realmente llegaron archivos
+            if (!req.files || (!req.files['foto'] && !req.files['video'])) {
+                console.log('No se detectaron archivos en la petición.');
+                return res.status(400).json({ error: 'No se enviaron archivos (foto o video).' });
+            }
+
+            // 1. Guardar Fotos
+            if (req.files['foto']) {
+                for (let foto of req.files['foto']) {
+                    console.log('Guardando URL de foto en MySQL:', foto.path);
+                    await pool.execute(
+                        'INSERT INTO fotos_inspeccion (id_ticket, ruta_foto) VALUES (?, ?)',
+                        [ticketId, foto.path]
+                    );
+                }
+            }
+
+            // 2. Guardar Video
+            if (req.files['video']) {
+                for (let video of req.files['video']) {
+                    console.log('Guardando URL de video en MySQL:', video.path);
+                    await pool.execute(
+                        'INSERT INTO fotos_inspeccion (id_ticket, ruta_foto) VALUES (?, ?)',
+                        [ticketId, video.path]
+                    );
+                }
+            }
+
+            res.status(200).json({ success: true, message: 'Evidencias guardadas en fotos_inspeccion' });
+        } catch (error) {
+            console.error('Error de Base de Datos al guardar ruta multimedia:', error);
+            res.status(500).json({ error: 'Error interno guardando evidencias en MySQL' });
+        }
+    });
 });
 
 // ACTUALIZADO: Endpoint para subir QR del usuario
