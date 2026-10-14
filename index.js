@@ -8,13 +8,17 @@ const { CloudinaryStorage } = require('multer-storage-cloudinary');
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+
+// Aumentamos el límite de tamaño para aceptar imágenes pesadas en Base64
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
 app.use(express.static('public'));
 // 1. Configurar Cloudinary con tus variables
 cloudinary.config({
   cloud_name: 'dxz5sofpd',
-  api_key: '5nsz7_Gs8eX3p-gDP6UdevplkFw',
-  api_secret: '236345187971185'
+  api_key: '236345187971185',
+  api_secret: '5nsz7_Gs8eX3p-gDP6UdevplkFw'
 });
 
 // 2. Motor de almacenamiento Cloudinary (Ajustado a tu estructura)
@@ -435,7 +439,7 @@ app.put('/api/usuarios/:id/admin-edit', async (req, res) => {
     }
 });
 // ==========================================
-// NUEVO: ENDPOINT SEGURO DE SUBIDA EN BASE64
+// ENDPOINT SEGURO DE SUBIDA EN BASE64 (CON HISTORIAL)
 // ==========================================
 app.post('/api/tickets/:id/multimedia-base64', async (req, res) => {
     try {
@@ -448,27 +452,41 @@ app.post('/api/tickets/:id/multimedia-base64', async (req, res) => {
 
         console.log(`Subiendo imagen a Cloudinary para el ticket ${ticketId}...`);
 
-        // 1. Subir a Cloudinary directamente (sin Multer)
+        // 1. Subir a Cloudinary
         const resultadoCloudinary = await cloudinary.uploader.upload(fotoBase64, {
-            folder: 'Fotos', // Tu carpeta en Cloudinary
+            folder: 'Fotos',
             resource_type: 'image'
         });
 
         const urlCloudinary = resultadoCloudinary.secure_url;
         console.log(`¡Subida a Cloudinary exitosa! URL: ${urlCloudinary}`);
 
-        // 2. Guardar en MySQL
+        // 2. Guardar la URL en fotos_inspeccion
         await pool.execute(
             'INSERT INTO fotos_inspeccion (id_ticket, ruta_foto) VALUES (?, ?)',
             [ticketId, urlCloudinary]
         );
 
-        console.log('¡URL guardada en MySQL!');
-        res.status(200).json({ success: true, message: 'Foto guardada correctamente' });
+        // 3. ASEGURAR HISTORIAL: Registrar el movimiento de INGRESO para que aparezca en la app y web
+        // Verificamos si ya existe un movimiento para este ticket para no duplicarlo
+        const [historialExistente] = await pool.execute(
+            'SELECT id_movimiento FROM historial_movimientos WHERE id_ticket = ? AND accion = ?', 
+            [ticketId, 'INGRESO']
+        );
+
+        if (historialExistente.length === 0) {
+            await pool.execute(
+                'INSERT INTO historial_movimientos (id_ticket, accion) VALUES (?, ?)', 
+                [ticketId, 'INGRESO']
+            );
+            console.log('¡Movimiento de INGRESO registrado en el historial!');
+        }
+
+        res.status(200).json({ success: true, message: 'Foto e historial guardados correctamente' });
 
     } catch (error) {
-        console.error('Error procesando imagen Base64:', error);
-        res.status(500).json({ error: 'Error del servidor al subir a Cloudinary' });
+        console.error('Error procesando imagen Base64 e historial:', error);
+        res.status(500).json({ error: 'Error del servidor al procesar la evidencia' });
     }
 });
 const PORT = process.env.PORT || 3000;
