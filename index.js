@@ -12,9 +12,9 @@ app.use(express.json());
 
 // 1. Configurar Cloudinary con tus variables
 cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET
+  cloud_name: 'dxz5sofpd',
+  api_key: '5nsz7_Gs8eX3p-gDP6UdevplkFw',
+  api_secret: '236345187971185'
 });
 
 // 2. Motor de almacenamiento Cloudinary (Ajustado a tu estructura)
