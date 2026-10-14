@@ -9,7 +9,7 @@ const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const app = express();
 app.use(cors());
 app.use(express.json());
-
+app.use(express.static('public'));
 // 1. Configurar Cloudinary con tus variables
 cloudinary.config({
   cloud_name: 'dxz5sofpd',
@@ -51,34 +51,38 @@ const pool = mysql.createPool({
 // ENDPOINTS MULTIMEDIA (CLOUDINARY)
 // ==========================================
 
-// NUEVO: Subir Múltiples Fotos y Video en el Check-in
+// Endpoint: Guardar fotos y video en Cloudinary + MySQL
 app.post('/api/tickets/:id/multimedia', upload.fields([
     { name: 'foto', maxCount: 4 }, 
     { name: 'video', maxCount: 1 }
 ]), async (req, res) => {
     try {
         const ticketId = req.params.id;
-        
-        // Guardar las URLs de las fotos en MySQL (Cloudinary nos da la URL en req.files[...].path)
+
+        // 1. Guardar Fotos
         if (req.files['foto']) {
             for (let foto of req.files['foto']) {
                 await pool.execute(
                     'INSERT INTO fotos_inspeccion (id_ticket, ruta_foto) VALUES (?, ?)',
-                    [ticketId, foto.path] // <-- Guarda el link directo de Cloudinary
+                    [ticketId, foto.path] // foto.path contiene la URL de Cloudinary
                 );
             }
         }
 
-        // Si tienes una tabla/columna para videos, aquí lo guardarías:
-        // if (req.files['video']) {
-        //     const videoUrl = req.files['video'][0].path;
-        //     // Insertar lógica SQL de video aquí...
-        // }
-        
-        res.status(200).json({ success: true, message: 'Evidencias subidas a Cloudinary con éxito' });
+        // 2. Guardar Video (se guarda en la misma columna ruta_foto)
+        if (req.files['video']) {
+            for (let video of req.files['video']) {
+                await pool.execute(
+                    'INSERT INTO fotos_inspeccion (id_ticket, ruta_foto) VALUES (?, ?)',
+                    [ticketId, video.path] // video.path contiene la URL de Cloudinary
+                );
+            }
+        }
+
+        res.status(200).json({ success: true, message: 'Evidencias guardadas en fotos_inspeccion' });
     } catch (error) {
         console.error('Error al subir multimedia:', error);
-        res.status(500).json({ error: 'Error interno subiendo archivos' });
+        res.status(500).json({ error: 'Error interno guardando evidencias' });
     }
 });
 
@@ -102,19 +106,24 @@ app.post('/api/usuarios/:id/qr', upload.single('qr'), async (req, res) => {
 // ENDPOINTS DE LOGICA DE NEGOCIO
 // ==========================================
 
-// Check-in (Solo guarda datos de texto y genera el Ticket ID)
+// Endpoint: Registrar Vehículo (Modificado para registrar al parkero)
 app.post('/api/checkin', async (req, res) => {
-    const { placa, marca, modelo, id_puesto } = req.body;
+    // AHORA RECIBIMOS EL id_usuario
+    const { placa, marca, modelo, id_puesto, id_usuario } = req.body; 
+    
     if (!placa || !id_puesto) return res.status(400).json({ error: 'Placa e id_puesto obligatorios' });
 
     const connection = await pool.getConnection();
     try {
         await connection.beginTransaction();
+        
+        // Guardamos el id_usuario en la columna id_valet_ingreso
         const [ticketRes] = await connection.execute(
-            'INSERT INTO tickets (placa, marca, modelo, id_puesto) VALUES (?, ?, ?, ?)',
-            [placa, marca, modelo, id_puesto]
+            'INSERT INTO tickets (placa, marca, modelo, id_puesto, id_valet_ingreso) VALUES (?, ?, ?, ?, ?)',
+            [placa, marca, modelo, id_puesto, id_usuario || null]
         );
         const idTicket = ticketRes.insertId;
+        
         await connection.execute('UPDATE puestos SET estado = ? WHERE id_puesto = ?', ['ocupado', id_puesto]);
         await connection.execute('INSERT INTO historial_movimientos (id_ticket, accion) VALUES (?, ?)', [idTicket, 'INGRESO']);
         
@@ -128,7 +137,6 @@ app.post('/api/checkin', async (req, res) => {
         connection.release();
     }
 });
-
 // Checkout
 app.post('/api/checkout', async (req, res) => {
     const { id_ticket, id_puesto } = req.body;
@@ -260,7 +268,144 @@ app.put('/api/usuarios/:id/password', async (req, res) => {
         res.status(200).json({ success: true, message: 'Contraseña actualizada' });
     } catch (error) { res.status(500).json({ error: 'Error interno' }); }
 });
+// ==========================================
+// ENDPOINTS PARA EL DASHBOARD ADMINISTRATIVO WEB
+// ==========================================
 
+// 1. Estadísticas Generales del Admin (Métricas principales)
+app.get('/api/admin/stats', async (req, res) => {
+    try {
+        const [ocupados] = await pool.execute("SELECT COUNT(*) as total FROM puestos WHERE estado = 'ocupado'");
+        const [libres] = await pool.execute("SELECT COUNT(*) as total FROM puestos WHERE estado = 'libre'");
+        const [ingresosHoy] = await pool.execute("SELECT COUNT(*) as total FROM tickets WHERE DATE(hora_ingreso) = CURDATE()");
+        const [valetsActivos] = await pool.execute("SELECT COUNT(*) as total FROM usuarios WHERE rol = 'valet' AND estado_conexion = 'activo'");
+
+        res.status(200).json({
+            ocupados: ocupados[0].total,
+            libres: libres[0].total,
+            ingresos_hoy: ingresosHoy[0].total,
+            valets_activos: valetsActivos[0].total
+        });
+    } catch (error) {
+        console.error('Error stats admin:', error);
+        res.status(500).json({ error: 'Error al obtener estadísticas admin' });
+    }
+});
+
+// 2. Monitoreo de Parkeros (Quién está activo y cuántos autos ha procesado hoy)
+app.get('/api/admin/valets', async (req, res) => {
+    try {
+        const sql = `
+            SELECT u.id, u.username, u.rol, u.estado_conexion, u.ultimo_acceso,
+            COUNT(t.id_ticket) as autos_atendidos_hoy
+            FROM usuarios u
+            LEFT JOIN tickets t ON (t.id_valet_ingreso = u.id AND DATE(t.hora_ingreso) = CURDATE())
+            WHERE u.rol != 'admin'
+            GROUP BY u.id
+            ORDER BY u.estado_conexion DESC, autos_atendidos_hoy DESC
+        `;
+        const [valets] = await pool.execute(sql);
+        res.status(200).json(valets);
+    } catch (error) {
+        console.error('Error al obtener valets:', error);
+        res.status(500).json({ error: 'Error al consultar valets' });
+    }
+});
+
+// 3. Vista Detallada de Vehículos Activos con Parkero y Multimedia
+app.get('/api/admin/vehiculos-activos', async (req, res) => {
+    try {
+        const sql = `
+            SELECT t.id_ticket, t.placa, t.marca, t.modelo, t.hora_ingreso, t.id_puesto,
+                   u.username as parkero_responsable,
+                   (SELECT COUNT(*) FROM fotos_inspeccion f WHERE f.id_ticket = t.id_ticket) as total_evidencias
+            FROM tickets t
+            LEFT JOIN usuarios u ON t.id_valet_ingreso = u.id
+            WHERE t.estado = 'activo'
+            ORDER BY t.hora_ingreso DESC
+        `;
+        const [rows] = await pool.execute(sql);
+        res.status(200).json(rows);
+    } catch (error) {
+        console.error('Error en vehiculos activos admin:', error);
+        res.status(500).json({ error: 'Error interno del servidor' });
+    }
+});
+// Endpoint: Auditoría Global de Evidencias (Para la página web)
+app.get('/api/admin/evidencias-globales', async (req, res) => {
+    try {
+        const sql = `
+            SELECT f.id, f.ruta_foto, f.creado_en, t.placa, t.marca, u.username as parkero
+            FROM fotos_inspeccion f
+            JOIN tickets t ON f.id_ticket = t.id_ticket
+            LEFT JOIN usuarios u ON t.id_valet_ingreso = u.id
+            ORDER BY f.creado_en DESC LIMIT 50
+        `;
+        const [rows] = await pool.execute(sql);
+        res.status(200).json(rows);
+    } catch (error) {
+        res.status(500).json({ error: 'Error al cargar evidencias globales' });
+    }
+});
+// ==========================================
+// ENDPOINTS PARA EDICIÓN Y ELIMINACIÓN DE USUARIOS
+// ==========================================
+
+// Endpoint: Eliminar Usuario (Solo Admin)
+app.delete('/api/usuarios/:id', async (req, res) => {
+    try {
+        const userId = req.params.id;
+        
+        // Medida de seguridad: Prevenir que el usuario admin principal se elimine a sí mismo
+        // (Asumimos que el ID 1 es tu Super Admin original)
+        if (userId === '1') {
+            return res.status(403).json({ error: 'No se puede eliminar al Administrador Principal' });
+        }
+
+        const [result] = await pool.execute('DELETE FROM usuarios WHERE id = ?', [userId]);
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ error: 'Usuario no encontrado' });
+        }
+
+        res.status(200).json({ success: true, message: 'Usuario eliminado exitosamente' });
+    } catch (error) {
+        console.error('Error al eliminar usuario:', error);
+        // Si hay un error de FK (Foreign Key), significa que el valet tiene tickets registrados
+        if (error.code === 'ER_ROW_IS_REFERENCED_2') {
+             res.status(400).json({ error: 'No puedes borrar este valet porque tiene tickets registrados en el historial.' });
+        } else {
+             res.status(500).json({ error: 'Error interno del servidor al eliminar' });
+        }
+    }
+});
+
+// Endpoint: Editar Usuario (Rol o Contraseña)
+app.put('/api/usuarios/:id/admin-edit', async (req, res) => {
+    try {
+        const userId = req.params.id;
+        const { username, rol, new_password } = req.body;
+
+        // Si mandan una nueva contraseña, la actualizamos junto al rol
+        if (new_password && new_password.trim() !== '') {
+            await pool.execute(
+                'UPDATE usuarios SET username = ?, rol = ?, password = ? WHERE id = ?',
+                [username, rol, new_password, userId]
+            );
+        } else {
+            // Si NO mandan contraseña, solo actualizamos nombre y rol
+            await pool.execute(
+                'UPDATE usuarios SET username = ?, rol = ? WHERE id = ?',
+                [username, rol, userId]
+            );
+        }
+
+        res.status(200).json({ success: true, message: 'Usuario actualizado correctamente' });
+    } catch (error) {
+        console.error('Error al editar usuario:', error);
+        res.status(500).json({ error: 'Error al actualizar datos del usuario' });
+    }
+});
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Servidor de API corriendo en el puerto ${PORT}`);
