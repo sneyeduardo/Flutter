@@ -183,17 +183,34 @@ app.post('/api/usuarios/:id/qr', upload.single('qr'), async (req, res) => {
 
 // Checkin (Con trazabilidad del parkero)
 app.post('/api/checkin', async (req, res) => {
-    const { placa, marca, modelo, id_puesto, id_usuario } = req.body;
+    const {
+        cedula, nombre, apellido, telefono,
+        placa, marca, modelo, id_puesto, id_usuario
+    } = req.body;
 
-    if (!placa || !id_puesto) return res.status(400).json({ error: 'Placa e id_puesto obligatorios' });
+    if (!placa || !id_puesto) {
+        return res.status(400).json({ error: 'Placa e id_puesto son obligatorios' });
+    }
 
     const connection = await pool.getConnection();
     try {
         await connection.beginTransaction();
 
         const [ticketRes] = await connection.execute(
-            'INSERT INTO tickets (placa, marca, modelo, id_puesto, id_valet_ingreso) VALUES (?, ?, ?, ?, ?)',
-            [placa, marca, modelo, id_puesto, id_usuario || null]
+            `INSERT INTO tickets 
+            (cedula_cliente, nombre_cliente, apellido_cliente, telefono_cliente, placa, marca, modelo, id_puesto, id_valet_ingreso, estado) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'activo')`,
+            [
+                cedula || null,
+                nombre || null,
+                apellido || null,
+                telefono || null,
+                placa,
+                marca || null,
+                modelo || null,
+                id_puesto,
+                id_usuario || null
+            ]
         );
         const idTicket = ticketRes.insertId;
 
@@ -201,7 +218,25 @@ app.post('/api/checkin', async (req, res) => {
         await connection.execute('INSERT INTO historial_movimientos (id_ticket, accion) VALUES (?, ?)', [idTicket, 'INGRESO']);
 
         await connection.commit();
-        res.status(200).json({ success: true, message: 'Vehículo ingresado', id_ticket: idTicket });
+
+        // Link único que se le enviará al cliente por WhatsApp
+        const linkSalida = `https://flutter-v66k.onrender.com/salida.html?ticket=${idTicket}`;
+
+        res.status(200).json({
+            success: true,
+            message: 'Vehículo ingresado',
+            id_ticket: idTicket,
+            link_salida: linkSalida,
+            datos_notificacion: {
+                nombre: `${nombre || ''} ${apellido || ''}`.trim(),
+                telefono: telefono || '',
+                marca: marca || '',
+                modelo: modelo || '',
+                placa: placa,
+                posicion: id_puesto,
+                link_salida: linkSalida
+            }
+        });
     } catch (error) {
         await connection.rollback();
         console.error('Error en checkin:', error);
@@ -293,13 +328,14 @@ app.get('/api/puestos', async (req, res) => {
 app.get('/api/tickets/activos', async (req, res) => {
     try {
         const [rows] = await pool.execute(`
-            SELECT t.id_ticket, t.placa, t.marca, t.modelo, t.hora_ingreso, p.id_puesto,
+            SELECT t.id_ticket, t.nombre_cliente, t.apellido_cliente, t.cedula_cliente, t.telefono_cliente,
+                   t.placa, t.marca, t.modelo, t.hora_ingreso, t.estado, p.id_puesto,
                    u.username as operador
             FROM tickets t
             JOIN puestos p ON t.id_puesto = p.id_puesto
             LEFT JOIN usuarios u ON t.id_valet_ingreso = u.id
-            WHERE t.estado = 'activo'
-            ORDER BY t.hora_ingreso DESC
+            WHERE t.estado IN ('activo', 'solicitado')
+            ORDER BY (t.estado = 'solicitado') DESC, t.hora_ingreso DESC
         `);
         res.status(200).json(rows);
     } catch (error) {
@@ -533,8 +569,59 @@ app.get('/api/admin/evidencias-globales', async (req, res) => {
         res.status(500).json({ error: 'Error al cargar evidencias globales' });
     }
 });
+app.get('/api/clientes/cedula/:cedula', async (req, res) => {
+    try {
+        const cedula = req.params.cedula.trim();
+        // Buscamos el último registro de esta cédula para traer sus datos y su último carro
+        const [rows] = await pool.execute(
+            `SELECT nombre_cliente, apellido_cliente, cedula_cliente, telefono_cliente, placa, marca, modelo 
+             FROM tickets 
+             WHERE cedula_cliente = ? 
+             ORDER BY id_ticket DESC LIMIT 1`,
+            [cedula]
+        );
 
-const PORT = process.env.PORT || 3000;
+        if (rows.length > 0) {
+            res.status(200).json({ found: true, cliente: rows[0] });
+        } else {
+            res.status(200).json({ found: false });
+        }
+    } catch (error) {
+        console.error('Error buscando cédula:', error);
+        res.status(500).json({ error: 'Error al buscar cliente' });
+    }
+});
+app.get('/api/tickets/:id/info-publica', async (req, res) => {
+    try {
+        const [rows] = await pool.execute(
+            'SELECT id_ticket, nombre_cliente, apellido_cliente, placa, marca, modelo, id_puesto, estado FROM tickets WHERE id_ticket = ?',
+            [req.params.id]
+        );
+        if (rows.length === 0) return res.status(404).json({ error: 'Ticket no encontrado' });
+        res.status(200).json(rows[0]);
+    } catch (error) {
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+app.post('/api/tickets/:id/solicitar-salida', async (req, res) => {
+    try {
+        const ticketId = req.params.id;
+        await pool.execute(
+            "UPDATE tickets SET estado = 'solicitado' WHERE id_ticket = ? AND estado = 'activo'",
+            [ticketId]
+        );
+
+        res.status(200).json({
+            success: true,
+            message: '¡Muchas gracias por visitarnos! Nuestro personal ya fue notificado para entregarte tu vehículo.',
+            instagram_url: 'https://www.instagram.com/z1gourmet/' // Pon aquí el Instagram oficial
+        });
+    } catch (error) {
+        console.error('Error al solicitar salida:', error);
+        res.status(500).json({ success: false, error: 'Error al solicitar el vehículo' });
+    }
+});
+const PORT = process.env.PORT || 3001;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Servidor de API corriendo en el puerto ${PORT}`);
 });
