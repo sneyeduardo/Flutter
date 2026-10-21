@@ -214,29 +214,21 @@ app.post('/api/checkin', async (req, res) => {
         );
         const idTicket = ticketRes.insertId;
 
-        await connection.execute('UPDATE puestos SET estado = ? WHERE id_puesto = ?', ['ocupado', id_puesto]);
-        await connection.execute('INSERT INTO historial_movimientos (id_ticket, accion) VALUES (?, ?)', [idTicket, 'INGRESO']);
+        // Pasa a ocupado y limpia cualquier reserva previa que tuviera el cajón
+        await connection.execute(
+            `UPDATE puestos 
+             SET estado = 'ocupado', reservado_para = NULL, cedula_reserva = NULL, telefono_reserva = NULL, nota_evento = NULL 
+             WHERE id_puesto = ?`,
+            [id_puesto]
+        );
+
+        await connection.execute(
+            'INSERT INTO historial_movimientos (id_ticket, accion, responsable) VALUES (?, ?, ?)',
+            [idTicket, 'INGRESO', id_usuario || null]
+        );
 
         await connection.commit();
-
-        // Link único que se le enviará al cliente por WhatsApp
-        const linkSalida = `https://flutter-v66k.onrender.com/salida.html?ticket=${idTicket}`;
-
-        res.status(200).json({
-            success: true,
-            message: 'Vehículo ingresado',
-            id_ticket: idTicket,
-            link_salida: linkSalida,
-            datos_notificacion: {
-                nombre: `${nombre || ''} ${apellido || ''}`.trim(),
-                telefono: telefono || '',
-                marca: marca || '',
-                modelo: modelo || '',
-                placa: placa,
-                posicion: id_puesto,
-                link_salida: linkSalida
-            }
-        });
+        res.status(200).json({ success: true, message: 'Vehículo ingresado', id_ticket: idTicket });
     } catch (error) {
         await connection.rollback();
         console.error('Error en checkin:', error);
@@ -248,18 +240,21 @@ app.post('/api/checkin', async (req, res) => {
 
 // Checkout
 app.post('/api/checkout', async (req, res) => {
-    const { id_ticket, id_puesto } = req.body;
+    const { id_ticket, id_puesto, id_usuario } = req.body;
     if (!id_ticket || !id_puesto) return res.status(400).json({ error: 'Faltan datos requeridos' });
 
     const connection = await pool.getConnection();
     try {
         await connection.beginTransaction();
         await connection.execute(
-            'UPDATE tickets SET estado = ?, hora_salida = CURRENT_TIMESTAMP WHERE id_ticket = ?',
-            ['entregado', id_ticket]
+            'UPDATE tickets SET estado = ?, hora_salida = CURRENT_TIMESTAMP, id_valet_entrega = ? WHERE id_ticket = ?',
+            ['entregado', id_usuario || null, id_ticket]
         );
         await connection.execute('UPDATE puestos SET estado = ? WHERE id_puesto = ?', ['libre', id_puesto]);
-        await connection.execute('INSERT INTO historial_movimientos (id_ticket, accion) VALUES (?, ?)', [id_ticket, 'ENTREGA']);
+        await connection.execute(
+            'INSERT INTO historial_movimientos (id_ticket, accion, responsable) VALUES (?, ?, ?)',
+            [id_ticket, 'ENTREGA', id_usuario || null]
+        );
 
         await connection.commit();
         res.status(200).json({ success: true, message: 'Vehículo entregado' });
@@ -314,9 +309,10 @@ app.get('/api/historial', async (req, res) => {
 app.get('/api/puestos', async (req, res) => {
     try {
         const [rows] = await pool.execute(`
-            SELECT p.id_puesto, p.estado, t.id_ticket, t.placa, t.marca, t.modelo, t.hora_ingreso
+            SELECT p.id_puesto, p.estado, p.reservado_para, p.cedula_reserva, p.telefono_reserva, p.nota_evento,
+                   t.id_ticket, t.placa, t.marca, t.modelo, t.hora_ingreso, t.nombre_cliente, t.apellido_cliente
             FROM puestos p
-            LEFT JOIN tickets t ON p.id_puesto = t.id_puesto AND t.estado = 'activo'
+            LEFT JOIN tickets t ON p.id_puesto = t.id_puesto AND t.estado IN ('activo', 'solicitado')
         `);
         res.status(200).json(rows);
     } catch (error) {
@@ -347,9 +343,15 @@ app.get('/api/tickets/activos', async (req, res) => {
 app.get('/api/dashboard/stats', async (req, res) => {
     try {
         const [ocupados] = await pool.execute("SELECT COUNT(*) as total FROM puestos WHERE estado = 'ocupado'");
+        const [reservados] = await pool.execute("SELECT COUNT(*) as total FROM puestos WHERE estado = 'reservado'");
         const [libres] = await pool.execute("SELECT COUNT(*) as total FROM puestos WHERE estado = 'libre'");
         const [entregados] = await pool.execute("SELECT COUNT(*) as total FROM tickets WHERE estado = 'entregado' AND DATE(hora_salida) = CURDATE()");
-        res.status(200).json({ ocupados: ocupados[0].total, libres: libres[0].total, entregados: entregados[0].total });
+        res.status(200).json({
+            ocupados: ocupados[0].total,
+            reservados: reservados[0].total,
+            libres: libres[0].total,
+            entregados: entregados[0].total
+        });
     } catch (error) {
         res.status(500).json({ error: 'Error interno' });
     }
@@ -501,22 +503,22 @@ app.put('/api/usuarios/:id/admin-edit', async (req, res) => {
 app.get('/api/admin/stats', async (req, res) => {
     try {
         const [ocupados] = await pool.execute("SELECT COUNT(*) as total FROM puestos WHERE estado = 'ocupado'");
+        const [reservados] = await pool.execute("SELECT COUNT(*) as total FROM puestos WHERE estado = 'reservado'");
         const [libres] = await pool.execute("SELECT COUNT(*) as total FROM puestos WHERE estado = 'libre'");
         const [ingresosHoy] = await pool.execute("SELECT COUNT(*) as total FROM tickets WHERE DATE(hora_ingreso) = CURDATE()");
         const [valetsActivos] = await pool.execute("SELECT COUNT(*) as total FROM usuarios WHERE rol != 'admin'");
 
         res.status(200).json({
             ocupados: ocupados[0].total,
+            reservados: reservados[0].total,
             libres: libres[0].total,
             ingresos_hoy: ingresosHoy[0].total,
             valets_activos: valetsActivos[0].total
         });
     } catch (error) {
-        console.error('Error stats admin:', error);
         res.status(500).json({ error: 'Error al obtener estadísticas admin' });
     }
 });
-
 app.get('/api/admin/valets', async (req, res) => {
     try {
         const sql = `
@@ -569,25 +571,40 @@ app.get('/api/admin/evidencias-globales', async (req, res) => {
         res.status(500).json({ error: 'Error al cargar evidencias globales' });
     }
 });
+// Búsqueda predictiva de clientes por Cédula, Nombre o Placa (Para App y Web)
 app.get('/api/clientes/cedula/:cedula', async (req, res) => {
     try {
-        const cedula = req.params.cedula.trim();
-        // Buscamos el último registro de esta cédula para traer sus datos y su último carro
+        const query = req.params.cedula.trim();
+        const searchPattern = `%${query}%`;
+
+        // Agrupa únicamente por cliente (cédula) tomando sus datos personales más recientes
         const [rows] = await pool.execute(
-            `SELECT nombre_cliente, apellido_cliente, cedula_cliente, telefono_cliente, placa, marca, modelo 
+            `SELECT MAX(id_ticket) as ultimo_ticket, 
+                    cedula_cliente, 
+                    MAX(nombre_cliente) as nombre_cliente, 
+                    MAX(apellido_cliente) as apellido_cliente, 
+                    MAX(telefono_cliente) as telefono_cliente
              FROM tickets 
-             WHERE cedula_cliente = ? 
-             ORDER BY id_ticket DESC LIMIT 1`,
-            [cedula]
+             WHERE cedula_cliente IS NOT NULL AND cedula_cliente != ''
+               AND (cedula_cliente LIKE ? OR nombre_cliente LIKE ? OR apellido_cliente LIKE ?)
+             GROUP BY cedula_cliente
+             ORDER BY ultimo_ticket DESC 
+             LIMIT 6`,
+            [searchPattern, searchPattern, searchPattern]
         );
 
-        if (rows.length > 0) {
-            res.status(200).json({ found: true, cliente: rows[0] });
-        } else {
-            res.status(200).json({ found: false });
-        }
+        const exactMatch = rows.find(
+            r => (r.cedula_cliente || '').toLowerCase() === query.toLowerCase()
+        );
+
+        res.status(200).json({
+            found: rows.length > 0,
+            exact: !!exactMatch,
+            cliente: exactMatch || rows[0] || null,
+            sugerencias: rows
+        });
     } catch (error) {
-        console.error('Error buscando cédula:', error);
+        console.error('Error buscando cliente:', error);
         res.status(500).json({ error: 'Error al buscar cliente' });
     }
 });
@@ -619,6 +636,70 @@ app.post('/api/tickets/:id/solicitar-salida', async (req, res) => {
     } catch (error) {
         console.error('Error al solicitar salida:', error);
         res.status(500).json({ success: false, error: 'Error al solicitar el vehículo' });
+    }
+});
+app.post('/api/puestos/reservar', async (req, res) => {
+    const { puestos, id_puesto, reservado_para, cedula, telefono, nota_evento } = req.body;
+    // Permite reservar un solo puesto ('A1') o varios a la vez (['A1', 'A2', 'A3']) para un evento
+    const listaPuestos = Array.isArray(puestos) ? puestos : (id_puesto ? [id_puesto] : []);
+
+    if (listaPuestos.length === 0 || !reservado_para || !reservado_para.trim()) {
+        return res.status(400).json({ error: 'Debes indicar el puesto y el nombre de la persona o evento.' });
+    }
+
+    const connection = await pool.getConnection();
+    try {
+        await connection.beginTransaction();
+
+        for (const puestoId of listaPuestos) {
+            await connection.execute(
+                `UPDATE puestos 
+                 SET estado = 'reservado', 
+                     reservado_para = ?, 
+                     cedula_reserva = ?, 
+                     telefono_reserva = ?, 
+                     nota_evento = ? 
+                 WHERE id_puesto = ? AND estado = 'libre'`,
+                [
+                    reservado_para.trim(),
+                    cedula || null,
+                    telefono || null,
+                    nota_evento || null,
+                    puestoId
+                ]
+            );
+        }
+
+        await connection.commit();
+        res.status(200).json({
+            success: true,
+            message: `Se apartaron ${listaPuestos.length} puesto(s) para ${reservado_para}`
+        });
+    } catch (error) {
+        await connection.rollback();
+        console.error('Error al reservar puesto:', error);
+        res.status(500).json({ error: 'Error interno al apartar el puesto' });
+    } finally {
+        connection.release();
+    }
+});
+
+// 2. NUEVO: Cancelar reserva y devolver el puesto a 'libre'
+app.post('/api/puestos/cancelar-reserva', async (req, res) => {
+    const { id_puesto } = req.body;
+    if (!id_puesto) return res.status(400).json({ error: 'Falta id_puesto' });
+
+    try {
+        await pool.execute(
+            `UPDATE puestos 
+             SET estado = 'libre', reservado_para = NULL, cedula_reserva = NULL, telefono_reserva = NULL, nota_evento = NULL 
+             WHERE id_puesto = ? AND estado = 'reservado'`,
+            [id_puesto]
+        );
+        res.status(200).json({ success: true, message: `Reserva del puesto ${id_puesto} cancelada` });
+    } catch (error) {
+        console.error('Error cancelando reserva:', error);
+        res.status(500).json({ error: 'Error al cancelar la reserva' });
     }
 });
 const PORT = process.env.PORT || 3001;
