@@ -414,10 +414,8 @@ app.post('/api/usuarios/:id/qr', upload.single('qr'), async (req, res) => {
 });
 
 // ==========================================
-// ENDPOINTS DE LÓGICA DE NEGOCIO
+// CHECKOUT CON WHATSAPP DE AVISO (5 MINUTOS)
 // ==========================================
-
-// Checkout
 app.post('/api/checkout', async (req, res) => {
     const { id_ticket, id_puesto, id_usuario } = req.body;
     if (!id_ticket || !id_puesto) return res.status(400).json({ error: 'Faltan datos requeridos' });
@@ -425,24 +423,77 @@ app.post('/api/checkout', async (req, res) => {
     const connection = await pool.getConnection();
     try {
         await connection.beginTransaction();
+
+        // 1. Obtenemos los datos del ticket y del cliente (teléfono y nombre) antes de entregarlo
+        const [ticketsRows] = await connection.execute(
+            'SELECT telefono_cliente, nombre_cliente, placa, marca, modelo FROM tickets WHERE id_ticket = ?',
+            [id_ticket]
+        );
+
+        // 2. Actualizamos el ticket a estado 'entregado' (o puedes usar 'saliendo' si prefieres una fase intermedia)
         await connection.execute(
             'UPDATE tickets SET estado = ?, hora_salida = CURRENT_TIMESTAMP, id_valet_entrega = ? WHERE id_ticket = ?',
             ['entregado', id_usuario || null, id_ticket]
         );
+
+        // 3. Liberamos el puesto en el estacionamiento
         await connection.execute('UPDATE puestos SET estado = ? WHERE id_puesto = ?', ['libre', id_puesto]);
+
+        // 4. Registramos el movimiento en el historial
         await connection.execute(
             'INSERT INTO historial_movimientos (id_ticket, accion, responsable) VALUES (?, ?, ?)',
             [id_ticket, 'ENTREGA', id_usuario || null]
         );
 
         await connection.commit();
-        res.status(200).json({ success: true, message: 'Vehículo entregado' });
+
+        // 5. Enviamos el mensaje de WhatsApp al cliente en segundo plano
+        if (ticketsRows.length > 0) {
+            const cliente = ticketsRows[0];
+            if (cliente.telefono_cliente && String(cliente.telefono_cliente).trim() !== '') {
+                const nombre = cliente.nombre_cliente || 'Cliente';
+                const vehiculo = `${cliente.marca || ''} ${cliente.modelo || ''}`.trim() || 'Vehículo';
+                
+                const mensajeSalida = 
+                    `🚗 *Z1 PARKING - Retಿರಿro de Vehículo* \n\n` +
+                    `¡Hola *${nombre}*! Hemos tomado nota de tu solicitud. \n\n` +
+                    `🔹 *Vehículo:* ${vehiculo}\n` +
+                    `🔹 *Placa:* ${cliente.placa}\n\n` +
+                    `⏱️ Tu vehículo será trasladado a la zona de entrega en aproximadamente *5 minutos*. ¡Te esperamos!`;
+
+                // Usamos la función de WhatsApp que ya tienes declarada en el servidor
+                enviarMensajeWhatsApp(cliente.telefono_cliente, mensajeSalida);
+            }
+        }
+
+        res.status(200).json({ success: true, message: 'Vehículo en proceso de entrega y WhatsApp enviado' });
     } catch (error) {
         await connection.rollback();
         console.error('Error en checkout:', error);
-        res.status(500).json({ success: false, error: 'Error interno' });
+        res.status(500).json({ success: false, error: 'Error interno del servidor' });
     } finally {
         connection.release();
+    }
+});
+// Endpoint para consultar vehículos que están solicitados o en proceso de salida
+app.get('/api/tickets/cola-salida', async (req, res) => {
+    try {
+        const [rows] = await pool.execute(`
+            SELECT t.id_ticket, t.placa, t.marca, t.modelo, t.nombre_cliente, t.apellido_cliente, 
+                   t.telefono_cliente, t.id_puesto, t.hora_ingreso, t.estado,
+                   u.username as valet_asignado
+            FROM tickets t
+            LEFT JOIN usuarios u ON t.id_valet_entrega = u.id
+            WHERE t.estado = 'solicitado'
+            ORDER BY t.hora_ingreso ASC
+        `);
+        res.status(200).json({
+            total_en_cola: rows.length,
+            vehiculos: rows
+        });
+    } catch (error) {
+        console.error('Error al obtener cola de salida:', error);
+        res.status(500).json({ error: 'Error interno al consultar la cola de salida' });
     }
 });
 
