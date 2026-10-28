@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Z1 PARKING - Ticket Digital</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="bg-slate-950 text-white min-h-screen flex items-center justify-center p-5 font-sans">
+
+    <div class="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md p-8 shadow-2xl text-center">
+        <!-- LOGO Z1 -->
+        <div class="w-16 h-16 rounded-2xl bg-[#148b92] flex items-center justify-center mx-auto mb-4 shadow-lg shadow-[#148b92]/30 overflow-hidden">
+            <img src="/logo_z1.png" alt="Z1" class="w-full h-full object-contain" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+            <i class="fa-solid fa-car-side text-3xl text-white hidden"></i>
+        </div>
+        <h1 class="text-2xl font-black tracking-tight">Z1 <span class="text-[#22aeb6]">PARKING</span></h1>
+        <p class="text-xs text-slate-400 mt-1 mb-6">Control de Entrega de Vehículos</p>
+
+        <!-- VISTA 1: CONFIRMACIÓN DE SALIDA -->
+        <div id="vista-ticket">
+            <div class="bg-slate-800/70 border border-slate-700 rounded-2xl p-5 mb-6 text-left space-y-2.5">
+                <div class="flex justify-between items-center border-b border-slate-700 pb-2.5 mb-2">
+                    <span class="text-xs text-slate-400 uppercase font-bold">Placa del Vehículo</span>
+                    <span id="txt-placa" class="text-lg font-black text-amber-400 tracking-wider">Cargando...</span>
+                </div>
+                <p class="text-sm text-slate-300"><strong class="text-slate-400">Cliente:</strong> <span id="txt-cliente">-</span></p>
+                <p class="text-sm text-slate-300"><strong class="text-slate-400">Marca / Modelo:</strong> <span id="txt-vehiculo">-</span></p>
+                <p class="text-sm text-slate-300"><strong class="text-slate-400">Estacionado en:</strong> <span id="txt-puesto" class="text-[#22aeb6] font-bold">-</span></p>
+            </div>
+
+            <button id="btn-salir" onclick="solicitarVehiculo()" class="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-black py-4 rounded-2xl text-base shadow-lg shadow-amber-500/20 transition flex items-center justify-center space-x-2">
+                <i class="fa-solid fa-key"></i>
+                <span>Ya voy a salir (Pedir mi Vehículo)</span>
+            </button>
+            <p class="text-[11px] text-slate-500 mt-3">Presiona el botón cuando estés listo para retirarte.</p>
+        </div>
+
+        <!-- VISTA 2: MENSAJE DE AGRADECIMIENTO Y REDIRECCIÓN A INSTAGRAM -->
+        <div id="vista-gracias" class="hidden py-4">
+            <div class="w-20 h-20 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto mb-5 animate-bounce">
+                <i class="fa-solid fa-circle-check text-5xl"></i>
+            </div>
+            <h2 class="text-2xl font-black text-white mb-3">¡Muchas gracias por su visita!</h2>
+            <p class="text-sm text-slate-300 leading-relaxed mb-6">
+                Ya le informamos al parkero para que saque su vehículo del <strong id="txt-puesto-confirmado" class="text-amber-400">puesto asignado</strong> y lo lleve a la puerta.
+            </p>
+            <div class="bg-slate-800 border border-slate-700 rounded-2xl p-4 text-xs text-slate-300 flex flex-col items-center space-y-2">
+                <div class="flex items-center space-x-2">
+                    <i class="fa-brands fa-instagram text-pink-500 text-xl"></i>
+                    <span class="font-bold">Redirigiendo a nuestro Instagram en <span id="contador-ig">3</span>s...</span>
+                </div>
+                <a id="link-ig-manual" href="https://www.instagram.com/popular/zgourmet/" class="text-[#22aeb6] underline text-[11px]">Haz clic aquí si no redirige automáticamente</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        const ticketId = params.get('ticket') || params.get('id');
+
+        async function cargarInfoTicket() {
+            if (!ticketId) {
+                document.getElementById('txt-placa').innerText = 'No encontrado';
+                return;
+            }
+            try {
+                const res = await fetch(`/api/tickets/${ticketId}/info-publica`);
+                const data = await res.json();
+                if (res.ok) {
+                    document.getElementById('txt-placa').innerText = data.placa || '';
+                    document.getElementById('txt-cliente').innerText = `${data.nombre_cliente || ''} ${data.apellido_cliente || ''}`.trim() || 'Visitante';
+                    document.getElementById('txt-vehiculo').innerText = `${data.marca || ''} ${data.modelo || ''}`.trim() || 'Vehículo';
+                    document.getElementById('txt-puesto').innerText = `Puesto ${data.id_puesto}`;
+                    document.getElementById('txt-puesto-confirmado').innerText = `Puesto ${data.id_puesto}`;
+
+                    // Si ya lo había solicitado antes, mostramos directo la pantalla de agradecimiento
+                    if (data.estado === 'solicitado') {
+                        solicitarVehiculo();
+                    }
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function solicitarVehiculo() {
+            const btn = document.getElementById('btn-salir');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-2"></i><span>Avisando al parkero...</span>';
+
+            try {
+                const res = await fetch(`/api/tickets/${ticketId}/solicitar-salida`, { method: 'POST' });
+                const data = await res.json();
+                const igUrl = data.instagram_url || 'https://www.instagram.com/popular/zgourmet/';
+                document.getElementById('link-ig-manual').href = igUrl;
+
+                document.getElementById('vista-ticket').classList.add('hidden');
+                document.getElementById('vista-gracias').classList.remove('hidden');
+
+                let segundos = 3;
+                const intervalo = setInterval(() => {
+                    segundos--;
+                    const spanCont = document.getElementById('contador-ig');
+                    if (spanCont) spanCont.innerText = segundos;
+                    if (segundos <= 0) {
+                        clearInterval(intervalo);
+                        window.location.href = igUrl;
+                    }
+                }, 1000);
+            } catch (e) {
+                alert('Error de conexión. Intenta nuevamente.');
+                btn.disabled = false;
+                btn.innerHTML = '<span>Ya voy a salir (Pedir mi Vehículo)</span>';
+            }
+        }
+
+        cargarInfoTicket();
+    </script>
+</body>
+</html>

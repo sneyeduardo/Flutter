@@ -8,12 +8,248 @@ const { CloudinaryStorage } = require('multer-storage-cloudinary');
 
 const app = express();
 app.use(cors());
-
-// Aumentamos el límite de tamaño para aceptar imágenes y videos cortos en Base64
 app.use(express.json({ limit: '150mb' }));
 app.use(express.urlencoded({ limit: '150mb', extended: true }));
-
 app.use(express.static('public'));
+// ==========================================
+// MOTOR DE WHATSAPP PERSONAL (BAILEYS)
+// ==========================================
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const QRCode = require('qrcode');
+const pino = require('pino');
+
+let sockWhatsApp = null;
+let qrActualBase64 = null;
+let whatsappConectado = false;
+
+async function iniciarWhatsApp() {
+    const { state, saveCreds } = await useMultiFileAuthState('./auth_whatsapp');
+    
+    sockWhatsApp = makeWASocket({
+        auth: state,
+        printQRInTerminal: true,
+        logger: pino({ level: 'silent' }),
+        browser: ['Z1 Parking Server', 'Chrome', '1.0.0']
+    });
+
+    sockWhatsApp.ev.on('creds.update', saveCreds);
+
+    sockWhatsApp.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect, qr } = update;
+
+        if (qr) {
+            qrActualBase64 = await QRCode.toDataURL(qr);
+            whatsappConectado = false;
+            console.log('📱 Nuevo QR de WhatsApp generado. Entra a /api/whatsapp/qr para escanearlo.');
+        }
+
+        if (connection === 'close') {
+            whatsappConectado = false;
+            const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
+            console.log('⚠️ Conexión de WhatsApp cerrada. Reconectando:', shouldReconnect);
+            if (shouldReconnect) {
+                setTimeout(iniciarWhatsApp, 4000);
+            } else {
+                qrActualBase64 = null;
+            }
+        } else if (connection === 'open') {
+            whatsappConectado = true;
+            qrActualBase64 = null;
+            console.log('✅ ¡WhatsApp personal conectado y listo para enviar tickets!');
+        }
+    });
+}
+
+// Iniciamos WhatsApp al arrancar el servidor
+iniciarWhatsApp();
+
+// Función auxiliar para enviar el mensaje al teléfono del cliente
+async function enviarMensajeWhatsApp(telefonoRaw, textoMensaje) {
+    if (!whatsappConectado || !sockWhatsApp) {
+        console.warn('⚠️ WhatsApp no está vinculado. Escanea el QR en /api/whatsapp/qr');
+        return false;
+    }
+
+    try {
+        // Limpiamos el número dejando solo dígitos (ej: +584141234567 -> 584141234567)
+        let numeroLimpio = String(telefonoRaw || '').replace(/[^0-9]/g, '');
+        if (!numeroLimpio) return false;
+
+        // Si pusieron un número venezolano con 0 adelante (0414...), lo pasamos a 58414...
+        if (numeroLimpio.startsWith('0') && numeroLimpio.length === 11) {
+            numeroLimpio = '58' + numeroLimpio.substring(1);
+        }
+
+        const jid = `${numeroLimpio}@s.whatsapp.net`;
+        await sockWhatsApp.sendMessage(jid, { text: textoMensaje });
+        console.log(`📤 WhatsApp enviado con éxito a +${numeroLimpio}`);
+        return true;
+    } catch (error) {
+        console.error('❌ Error enviando mensaje de WhatsApp:', error);
+        return false;
+    }
+}
+
+// RUTA WEB PARA ESCANEAR EL QR DE TU WHATSAPP DESDE EL NAVEGADOR
+app.get('/api/whatsapp/qr', (req, res) => {
+    if (whatsappConectado) {
+        return res.send(`
+            <body style="background:#0f172a;color:white;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;text-align:center;">
+                <div style="background:#1e293b;padding:40px;border-radius:24px;border:1px solid #334155;">
+                    <h2 style="color:#10b981;margin-bottom:10px;">✅ ¡Tu WhatsApp ya está Conectado!</h2>
+                    <p style="color:#94a3b8;">El servidor ya puede enviar mensajes automáticos al registrar vehículos.</p>
+                </div>
+            </body>
+        `);
+    }
+
+    if (!qrActualBase64) {
+        return res.send(`
+            <body style="background:#0f172a;color:white;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;text-align:center;">
+                <meta http-equiv="refresh" content="3">
+                <h2>Generando código QR de WhatsApp... Espera 3 segundos.</h2>
+            </body>
+        `);
+    }
+
+    res.send(`
+        <body style="background:#0f172a;color:white;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;text-align:center;">
+            <meta http-equiv="refresh" content="15">
+            <div style="background:#1e293b;padding:32px;border-radius:24px;border:1px solid #334155;max-width:400px;">
+                <h2 style="margin-top:0;color:#22aeb6;">Vincular WhatsApp Z1 Parking</h2>
+                <p style="color:#94a3b8;font-size:14px;">Abre WhatsApp en tu teléfono &rarr; Dispositivos vinculados &rarr; Vincular un dispositivo:</p>
+                <img src="${qrActualBase64}" style="width:260px;height:260px;border-radius:16px;margin:16px 0;background:white;padding:10px;"/>
+                <p style="color:#64748b;font-size:12px;">Esta pantalla se actualiza sola cada 15 segundos.</p>
+            </div>
+        </body>
+    `);
+});
+
+// ==========================================
+// CHECKIN CON ENVÍO AUTOMÁTICO DE WHATSAPP
+// ==========================================
+app.post('/api/checkin', async (req, res) => {
+    const {
+        cedula, nombre, apellido, telefono,
+        placa, marca, modelo, id_puesto, id_usuario
+    } = req.body;
+
+    if (!placa || !id_puesto) {
+        return res.status(400).json({ error: 'Placa e id_puesto son obligatorios' });
+    }
+
+    const connection = await pool.getConnection();
+    try {
+        await connection.beginTransaction();
+
+        const [ticketRes] = await connection.execute(
+            `INSERT INTO tickets 
+            (cedula_cliente, nombre_cliente, apellido_cliente, telefono_cliente, placa, marca, modelo, id_puesto, id_valet_ingreso, estado) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'activo')`,
+            [
+                cedula || null,
+                nombre || null,
+                apellido || null,
+                telefono || null,
+                placa,
+                marca || null,
+                modelo || null,
+                id_puesto,
+                id_usuario || null
+            ]
+        );
+        const idTicket = ticketRes.insertId;
+
+        await connection.execute(
+            `UPDATE puestos 
+             SET estado = 'ocupado', reservado_para = NULL, cedula_reserva = NULL, telefono_reserva = NULL, nota_evento = NULL 
+             WHERE id_puesto = ?`,
+            [id_puesto]
+        );
+
+        await connection.execute(
+            'INSERT INTO historial_movimientos (id_ticket, accion, responsable) VALUES (?, ?, ?)',
+            [idTicket, 'INGRESO', id_usuario || null]
+        );
+
+        await connection.commit();
+
+        // Construimos la URL base dinámicamente según el dominio donde corre tu servidor
+        const baseUrl = `${req.protocol}://${req.get('host')}`;
+        const linkSalida = `${baseUrl}/salida.html?ticket=${idTicket}`;
+
+        // Si el cliente tiene teléfono, enviamos el WhatsApp en segundo plano
+        if (telefono && String(telefono).trim() !== '') {
+            const nombreCliente = `${nombre || ''} ${apellido || ''}`.trim() || 'Cliente';
+            const vehiculoDesc = `${marca || ''} ${modelo || ''}`.trim() || 'Vehículo';
+
+            const mensajeWA = 
+                `🚗 *¡Bienvenido a Z1 PARKING!* \n\n` +
+                `Hola *${nombreCliente}*, tu vehículo ha sido estacionado de forma segura:\n\n` +
+                `🔹 *Vehículo:* ${vehiculoDesc}\n` +
+                `🔹 *Placa:* ${placa}\n` +
+                `📍 *Puesto asignado:* ${id_puesto}\n\n` +
+                `🔑 *¿Ya te vas a retirar?*\n` +
+                `Toca el siguiente enlace cuando vayas de salida para avisarle al parkero que te acerque tu vehículo:\n` +
+                `👉 ${linkSalida}`;
+
+            enviarMensajeWhatsApp(telefono, mensajeWA);
+        }
+
+        res.status(200).json({
+            success: true,
+            message: 'Vehículo ingresado y WhatsApp enviado',
+            id_ticket: idTicket,
+            link_salida: linkSalida
+        });
+    } catch (error) {
+        await connection.rollback();
+        console.error('Error en checkin:', error);
+        res.status(500).json({ success: false, error: 'Error interno del servidor' });
+    } finally {
+        connection.release();
+    }
+});
+
+// ==========================================
+// ENDPOINTS PARA EL LINK DE SALIDA DEL CLIENTE
+// ==========================================
+app.get('/api/tickets/:id/info-publica', async (req, res) => {
+    try {
+        const [rows] = await pool.execute(
+            'SELECT id_ticket, nombre_cliente, apellido_cliente, placa, marca, modelo, id_puesto, estado FROM tickets WHERE id_ticket = ?',
+            [req.params.id]
+        );
+        if (rows.length === 0) return res.status(404).json({ error: 'Ticket no encontrado' });
+        res.status(200).json(rows[0]);
+    } catch (error) {
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+
+app.post('/api/tickets/:id/solicitar-salida', async (req, res) => {
+    try {
+        const ticketId = req.params.id;
+        
+        // Cambiamos únicamente el estado a 'solicitado' para que Flutter lo detecte
+        const [result] = await pool.execute(
+            "UPDATE tickets SET estado = 'solicitado' WHERE id_ticket = ? AND estado = 'activo'",
+            [ticketId]
+        );
+
+        console.log(`🔔 Ticket #${ticketId} solicitó salida de vehículo (Filas actualizadas: ${result.affectedRows})`);
+
+        res.status(200).json({
+            success: true,
+            message: '¡Muchas gracias por tu visita! Ya le informamos al parkero para que saque tu vehículo.',
+            instagram_url: 'https://www.instagram.com/z1gourmet/'
+        });
+    } catch (error) {
+        console.error('Error al solicitar salida:', error);
+        res.status(500).json({ error: 'Error al solicitar el vehículo' });
+    }
+});
+// Aumentamos el límite de tamaño para aceptar imágenes y videos cortos en Base64
 
 // 1. Configurar Cloudinary (Tip: pasa estos valores a tu archivo .env en producción)
 cloudinary.config({
@@ -180,63 +416,6 @@ app.post('/api/usuarios/:id/qr', upload.single('qr'), async (req, res) => {
 // ==========================================
 // ENDPOINTS DE LÓGICA DE NEGOCIO
 // ==========================================
-
-// Checkin (Con trazabilidad del parkero)
-app.post('/api/checkin', async (req, res) => {
-    const {
-        cedula, nombre, apellido, telefono,
-        placa, marca, modelo, id_puesto, id_usuario
-    } = req.body;
-
-    if (!placa || !id_puesto) {
-        return res.status(400).json({ error: 'Placa e id_puesto son obligatorios' });
-    }
-
-    const connection = await pool.getConnection();
-    try {
-        await connection.beginTransaction();
-
-        const [ticketRes] = await connection.execute(
-            `INSERT INTO tickets 
-            (cedula_cliente, nombre_cliente, apellido_cliente, telefono_cliente, placa, marca, modelo, id_puesto, id_valet_ingreso, estado) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'activo')`,
-            [
-                cedula || null,
-                nombre || null,
-                apellido || null,
-                telefono || null,
-                placa,
-                marca || null,
-                modelo || null,
-                id_puesto,
-                id_usuario || null
-            ]
-        );
-        const idTicket = ticketRes.insertId;
-
-        // Pasa a ocupado y limpia cualquier reserva previa que tuviera el cajón
-        await connection.execute(
-            `UPDATE puestos 
-             SET estado = 'ocupado', reservado_para = NULL, cedula_reserva = NULL, telefono_reserva = NULL, nota_evento = NULL 
-             WHERE id_puesto = ?`,
-            [id_puesto]
-        );
-
-        await connection.execute(
-            'INSERT INTO historial_movimientos (id_ticket, accion, responsable) VALUES (?, ?, ?)',
-            [idTicket, 'INGRESO', id_usuario || null]
-        );
-
-        await connection.commit();
-        res.status(200).json({ success: true, message: 'Vehículo ingresado', id_ticket: idTicket });
-    } catch (error) {
-        await connection.rollback();
-        console.error('Error en checkin:', error);
-        res.status(500).json({ success: false, error: 'Error interno del servidor' });
-    } finally {
-        connection.release();
-    }
-});
 
 // Checkout
 app.post('/api/checkout', async (req, res) => {
@@ -606,36 +785,6 @@ app.get('/api/clientes/cedula/:cedula', async (req, res) => {
     } catch (error) {
         console.error('Error buscando cliente:', error);
         res.status(500).json({ error: 'Error al buscar cliente' });
-    }
-});
-app.get('/api/tickets/:id/info-publica', async (req, res) => {
-    try {
-        const [rows] = await pool.execute(
-            'SELECT id_ticket, nombre_cliente, apellido_cliente, placa, marca, modelo, id_puesto, estado FROM tickets WHERE id_ticket = ?',
-            [req.params.id]
-        );
-        if (rows.length === 0) return res.status(404).json({ error: 'Ticket no encontrado' });
-        res.status(200).json(rows[0]);
-    } catch (error) {
-        res.status(500).json({ error: 'Error interno' });
-    }
-});
-app.post('/api/tickets/:id/solicitar-salida', async (req, res) => {
-    try {
-        const ticketId = req.params.id;
-        await pool.execute(
-            "UPDATE tickets SET estado = 'solicitado' WHERE id_ticket = ? AND estado = 'activo'",
-            [ticketId]
-        );
-
-        res.status(200).json({
-            success: true,
-            message: '¡Muchas gracias por visitarnos! Nuestro personal ya fue notificado para entregarte tu vehículo.',
-            instagram_url: 'https://www.instagram.com/z1gourmet/' // Pon aquí el Instagram oficial
-        });
-    } catch (error) {
-        console.error('Error al solicitar salida:', error);
-        res.status(500).json({ success: false, error: 'Error al solicitar el vehículo' });
     }
 });
 app.post('/api/puestos/reservar', async (req, res) => {

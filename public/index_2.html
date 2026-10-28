@@ -1,0 +1,1011 @@
+
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ValetControl PRO - Suite Administrativa</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: { 400: '#22aeb6', 500: '#148b92', 600: '#0d6e74', 900: '#0f172a' }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        .seccion-oculta { display: none !important; }
+        /* Scrollbar elegante para tablas y modales */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 font-sans min-h-screen flex flex-col md:flex-row relative">
+
+    <!-- CONTENEDOR DE NOTIFICACIONES TOAST -->
+    <div id="toast-container" class="fixed top-5 right-5 z-[100] flex flex-col gap-3 pointer-events-none"></div>
+
+    <!-- PANTALLA DE LOGIN ADMINISTRATIVO (BLOQUEO DE SEGURIDAD) -->
+    <div id="pantalla-login" class="fixed inset-0 bg-slate-950 z-[90] flex items-center justify-center p-4">
+        <div class="bg-slate-800/90 border border-slate-700/80 rounded-3xl w-full max-w-md p-8 shadow-2xl backdrop-blur-md">
+            <div class="flex flex-col items-center text-center mb-8">
+                <div class="w-16 h-16 rounded-2xl bg-brand-500 flex items-center justify-center text-white shadow-lg shadow-brand-500/30 mb-4">
+                    <i class="fa-solid fa-car-tunnel text-3xl"></i>
+                </div>
+                <h1 class="text-2xl font-black text-white tracking-tight">ValetControl <span class="text-brand-400">PRO</span></h1>
+                <p class="text-xs text-slate-400 mt-1">Centro de Monitoreo y Administración Web</p>
+            </div>
+            <form onsubmit="iniciarSesionWeb(event)" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-slate-400 uppercase mb-1.5">Usuario Administrador</label>
+                    <div class="relative">
+                        <i class="fa-solid fa-user-shield absolute left-4 top-3.5 text-slate-500"></i>
+                        <input type="text" id="login-user" required placeholder="Ej: admin" class="w-full bg-slate-900 border border-slate-700 rounded-xl pl-11 pr-4 py-3 text-sm text-white focus:outline-none focus:border-brand-500">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-400 uppercase mb-1.5">Contraseña</label>
+                    <div class="relative">
+                        <i class="fa-solid fa-lock absolute left-4 top-3.5 text-slate-500"></i>
+                        <input type="password" id="login-pass" required placeholder="••••••••" class="w-full bg-slate-900 border border-slate-700 rounded-xl pl-11 pr-4 py-3 text-sm text-white focus:outline-none focus:border-brand-500">
+                    </div>
+                </div>
+                <button type="submit" id="btn-login-submit" class="w-full bg-brand-500 hover:bg-brand-600 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-brand-500/20 transition mt-2">
+                    Ingresar al Panel
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- SIDEBAR -->
+    <aside class="w-full md:w-64 bg-slate-800/80 border-b md:border-b-0 md:border-r border-slate-700/50 flex flex-col justify-between p-6 shrink-0">
+        <div>
+            <div class="flex items-center justify-between md:justify-start md:space-x-3 mb-6 md:mb-8">
+                <div class="flex items-center space-x-3">
+                    <div class="w-10 h-10 rounded-xl bg-brand-500 flex items-center justify-center text-white shadow-lg">
+                        <i class="fa-solid fa-car-tunnel text-xl"></i>
+                    </div>
+                    <div>
+                        <h1 class="font-bold text-lg text-white leading-tight">ValetControl</h1>
+                        <span id="badge-admin-user" class="text-xs text-amber-400 font-semibold uppercase tracking-wider">Admin Web</span>
+                    </div>
+                </div>
+                <button onclick="cerrarSesionWeb()" class="md:hidden text-xs bg-red-500/10 text-red-400 px-3 py-1.5 rounded-lg border border-red-500/20">
+                    <i class="fa-solid fa-power-off"></i>
+                </button>
+            </div>
+
+            <nav class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-1 gap-2" id="menu-navegacion">
+                <button onclick="cambiarSeccion('dashboard', this)" class="w-full flex items-center space-x-3 px-4 py-3 rounded-xl bg-brand-500/10 text-brand-400 font-medium border border-brand-500/20 menu-btn">
+                    <i class="fa-solid fa-chart-pie w-5"></i> <span>Dashboard</span>
+                </button>
+                <button onclick="cambiarSeccion('mapa', this)" class="w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-slate-400 hover:bg-slate-700 hover:text-white transition menu-btn">
+                    <i class="fa-solid fa-square-parking w-5"></i> <span>Mapa Interactivo</span>
+                </button>
+                <button onclick="cambiarSeccion('historial', this)" class="w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-slate-400 hover:bg-slate-700 hover:text-white transition menu-btn">
+                    <i class="fa-solid fa-clock-rotate-left w-5"></i> <span>Historial / Excel</span>
+                </button>
+                <button onclick="cambiarSeccion('parkeros', this)" class="w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-slate-400 hover:bg-slate-700 hover:text-white transition menu-btn">
+                    <i class="fa-solid fa-user-shield w-5"></i> <span>Personal / QR</span>
+                </button>
+                <button onclick="cambiarSeccion('auditoria', this)" class="w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-slate-400 hover:bg-slate-700 hover:text-white transition menu-btn">
+                    <i class="fa-solid fa-photo-film w-5"></i> <span>Auditoría Media</span>
+                </button>
+            </nav>
+        </div>
+
+        <div class="hidden md:flex flex-col gap-3 pt-6 border-t border-slate-700/60">
+            <button onclick="cerrarSesionWeb()" class="w-full flex items-center justify-center space-x-2 px-4 py-2.5 rounded-xl bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-white text-xs font-bold border border-red-500/20 transition">
+                <i class="fa-solid fa-power-off"></i> <span>Cerrar Sesión</span>
+            </button>
+            <div class="text-center text-slate-500 text-[11px]">
+                <span class="inline-block w-2 h-2 rounded-full bg-emerald-400 mr-1 animate-pulse"></span> Sincronización Activa &bull; V 3.0
+            </div>
+        </div>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <main class="flex-1 p-6 md:p-10 overflow-y-auto">
+        
+        <header class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
+            <div>
+                <h2 id="titulo-seccion" class="text-2xl md:text-3xl font-bold text-white tracking-tight">Panel de Control General</h2>
+                <p id="subtitulo-actualizacion" class="text-xs text-slate-400 mt-1">Sincronizando datos en tiempo real...</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-3">
+                <button id="btn-checkin-web" onclick="abrirModalCheckinWeb('')" class="bg-amber-500 hover:bg-amber-600 text-slate-950 px-4 py-2.5 rounded-xl text-sm font-bold transition shadow-lg">
+                    <i class="fa-solid fa-plus mr-1.5"></i> Ingresar Vehículo
+                </button>
+                <button id="btn-nuevo-usuario" onclick="abrirModalUsuario()" class="seccion-oculta bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition shadow-lg">
+                    <i class="fa-solid fa-user-plus mr-1.5"></i> Nuevo Usuario
+                </button>
+                <button onclick="cargarDatosActivos(true)" class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition">
+                    <i class="fa-solid fa-rotate mr-1.5 text-brand-400"></i> Actualizar
+                </button>
+            </div>
+        </header>
+
+        <!-- SECCIÓN 1: DASHBOARD PRINCIPAL -->
+        <div id="seccion-dashboard">
+            <!-- KPIs -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-6">
+                <div class="bg-slate-800 p-5 rounded-2xl border border-slate-700/80 flex justify-between items-center shadow-lg">
+                    <div><span class="text-slate-400 text-xs font-semibold uppercase">Puestos Ocupados</span><h3 id="st-ocupados" class="text-3xl font-black mt-1 text-amber-400">0</h3></div>
+                    <div class="w-12 h-12 rounded-2xl bg-amber-500/10 flex items-center justify-center"><i class="fa-solid fa-car text-amber-500 text-2xl"></i></div>
+                </div>
+                <div class="bg-slate-800 p-5 rounded-2xl border border-slate-700/80 flex justify-between items-center shadow-lg">
+                    <div><span class="text-slate-400 text-xs font-semibold uppercase">Puestos Libres</span><h3 id="st-libres" class="text-3xl font-black mt-1 text-emerald-400">0</h3></div>
+                    <div class="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center"><i class="fa-solid fa-check-circle text-emerald-500 text-2xl"></i></div>
+                </div>
+                <div class="bg-slate-800 p-5 rounded-2xl border border-slate-700/80 flex justify-between items-center shadow-lg">
+                    <div><span class="text-slate-400 text-xs font-semibold uppercase">Ingresos de Hoy</span><h3 id="st-ingresos" class="text-3xl font-black mt-1 text-brand-400">0</h3></div>
+                    <div class="w-12 h-12 rounded-2xl bg-brand-500/10 flex items-center justify-center"><i class="fa-solid fa-arrow-right-to-bracket text-brand-400 text-2xl"></i></div>
+                </div>
+                <div class="bg-slate-800 p-5 rounded-2xl border border-slate-700/80 flex justify-between items-center shadow-lg">
+                    <div><span class="text-slate-400 text-xs font-semibold uppercase">Personal Activo</span><h3 id="st-valets" class="text-3xl font-black mt-1 text-indigo-400">0</h3></div>
+                    <div class="w-12 h-12 rounded-2xl bg-indigo-500/10 flex items-center justify-center"><i class="fa-solid fa-user-shield text-indigo-400 text-2xl"></i></div>
+                </div>
+            </div>
+
+            <!-- Barra Visual de Capacidad en Vivo -->
+            <div class="bg-slate-800 p-5 rounded-2xl border border-slate-700/80 mb-8 shadow-lg">
+                <div class="flex justify-between items-center mb-2">
+                    <span class="text-sm font-bold text-slate-200"><i class="fa-solid fa-gauge-high text-brand-400 mr-2"></i>Porcentaje de Ocupación del Estacionamiento</span>
+                    <span id="txt-porcentaje-ocupacion" class="text-sm font-black text-brand-400">0%</span>
+                </div>
+                <div class="w-full h-3 bg-slate-900 rounded-full overflow-hidden p-0.5 border border-slate-700">
+                    <div id="barra-ocupacion" class="h-full bg-brand-500 rounded-full transition-all duration-500" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <!-- Tabla de Vehículos Estacionados -->
+            <div class="bg-slate-800 rounded-2xl border border-slate-700 p-6 overflow-x-auto shadow-lg">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-5">
+                    <div>
+                        <h3 class="font-bold text-lg text-white"><i class="fa-solid fa-car-side text-brand-400 mr-2"></i>Vehículos Estacionados en este Momento</h3>
+                        <p class="text-xs text-slate-400">Haz clic en las evidencias para inspeccionar fotos/videos o libera el puesto manualmente.</p>
+                    </div>
+                    <div class="relative w-full sm:w-72">
+                        <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-3 text-slate-500 text-xs"></i>
+                        <input type="text" id="buscador-vehiculos-web" oninput="filtrarTablaVehiculosWeb()" placeholder="Buscar placa, puesto o parkero..." class="bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-4 py-2 text-sm text-white focus:outline-none focus:border-brand-500 w-full">
+                    </div>
+                </div>
+                <table class="w-full text-left text-sm text-slate-300">
+                    <thead class="bg-slate-900/60 text-slate-400 uppercase text-xs">
+                        <tr>
+                            <th class="p-3.5 rounded-l-lg">Placa / Vehículo</th>
+                            <th class="p-3.5">Puesto</th>
+                            <th class="p-3.5">Ingreso / Estadía</th>
+                            <th class="p-3.5">Operador</th>
+                            <th class="p-3.5">Evidencias</th>
+                            <th class="p-3.5 text-right rounded-r-lg">Acción</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tabla-vehiculos" class="divide-y divide-slate-700/50"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- SECCIÓN 2: MAPA DE PUESTOS INTERACTIVO -->
+        <div id="seccion-mapa" class="seccion-oculta">
+            <div class="bg-slate-800/50 border border-slate-700/80 rounded-xl p-4 mb-6 flex flex-wrap items-center justify-between gap-4 text-xs text-slate-300">
+                <div class="flex items-center space-x-6">
+                    <span class="flex items-center"><span class="w-3 h-3 rounded-full bg-emerald-400 mr-2"></span> <strong>Puesto Libre:</strong> Clic para registrar ingreso manual</span>
+                    <span class="flex items-center"><span class="w-3 h-3 rounded-full bg-amber-400 mr-2"></span> <strong>Puesto Ocupado:</strong> Clic para ver detalles o entregar</span>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div class="bg-slate-800/60 p-6 rounded-2xl border border-slate-700">
+                    <h3 class="font-bold text-lg mb-4 text-amber-400"><i class="fa-solid fa-road mr-2"></i>Sector Izquierdo (Lado A)</h3>
+                    <div id="grid-puestos-a" class="grid grid-cols-2 sm:grid-cols-3 gap-4"></div>
+                </div>
+                <div class="bg-slate-800/60 p-6 rounded-2xl border border-slate-700">
+                    <h3 class="font-bold text-lg mb-4 text-brand-400"><i class="fa-solid fa-road mr-2"></i>Sector Derecho (Lado B)</h3>
+                    <div id="grid-puestos-b" class="grid grid-cols-2 sm:grid-cols-3 gap-4"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SECCIÓN 3: HISTORIAL COMPLETO Y EXPORTACIÓN A EXCEL/CSV -->
+        <div id="seccion-historial" class="seccion-oculta">
+            <div class="bg-slate-800 rounded-2xl border border-slate-700 p-6 shadow-lg">
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+                    <div class="lg:col-span-2 relative">
+                        <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-3.5 text-slate-500 text-xs"></i>
+                        <input type="text" id="hist-search" oninput="cargarHistorialWeb()" placeholder="Buscar por placa, marca, modelo o puesto..." class="w-full bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-brand-500">
+                    </div>
+                    <div>
+                        <input type="date" id="hist-fecha" onchange="cargarHistorialWeb()" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-brand-500">
+                    </div>
+                    <div>
+                        <select id="hist-accion" onchange="cargarHistorialWeb()" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-brand-500">
+                            <option value="TODOS">Todos los movimientos</option>
+                            <option value="INGRESO">Solo Ingresos</option>
+                            <option value="ENTREGA">Solo Entregas</option>
+                        </select>
+                    </div>
+                    <div>
+                        <button onclick="exportarHistorialExcel()" class="w-full h-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl px-4 py-2.5 text-sm transition flex items-center justify-center">
+                            <i class="fa-solid fa-file-excel mr-2 text-lg"></i> Exportar Excel
+                        </button>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-sm text-slate-300">
+                        <thead class="bg-slate-900/60 text-slate-400 uppercase text-xs">
+                            <tr>
+                                <th class="p-3.5">Movimiento</th>
+                                <th class="p-3.5">Placa / Vehículo</th>
+                                <th class="p-3.5">Puesto</th>
+                                <th class="p-3.5">Operador</th>
+                                <th class="p-3.5">Fecha y Hora</th>
+                                <th class="p-3.5 text-right">Inspección</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabla-historial-web" class="divide-y divide-slate-700/50"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- SECCIÓN 4: CONTROL DE PARKEROS Y USUARIOS -->
+        <div id="seccion-parkeros" class="seccion-oculta">
+            <div class="bg-slate-800 rounded-2xl border border-slate-700 p-6 overflow-x-auto shadow-lg">
+                <table class="w-full text-left text-sm text-slate-300">
+                    <thead class="bg-slate-900/60 text-slate-400 uppercase text-xs">
+                        <tr>
+                            <th class="p-3.5">Operador</th>
+                            <th class="p-3.5">Rol</th>
+                            <th class="p-3.5">QR de Propina</th>
+                            <th class="p-3.5">Estado</th>
+                            <th class="p-3.5">Recibidos Hoy</th>
+                            <th class="p-3.5 text-right">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tabla-parkeros" class="divide-y divide-slate-700/50"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- SECCIÓN 5: AUDITORÍA DE EVIDENCIAS -->
+        <div id="seccion-auditoria" class="seccion-oculta">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 bg-slate-800 p-4 rounded-2xl border border-slate-700">
+                <div class="relative w-full sm:w-80">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-3 text-slate-500 text-xs"></i>
+                    <input type="text" id="buscador-auditoria" oninput="filtrarAuditoriaWeb()" placeholder="Filtrar por placa o parkero..." class="w-full bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-4 py-2 text-sm text-white focus:outline-none focus:border-brand-500">
+                </div>
+                <div class="flex space-x-2">
+                    <button onclick="setFiltroMedia('TODOS', this)" class="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-brand-500 text-white btn-filtro-media">Todos</button>
+                    <button onclick="setFiltroMedia('FOTOS', this)" class="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-slate-900 text-slate-400 hover:text-white btn-filtro-media">Fotos</button>
+                    <button onclick="setFiltroMedia('VIDEOS', this)" class="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-slate-900 text-slate-400 hover:text-white btn-filtro-media">Videos</button>
+                </div>
+            </div>
+            <div id="grid-evidencias" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6"></div>
+        </div>
+
+    </main>
+
+    <!-- MODAL INGRESAR VEHÍCULO DESDE WEB (EMERGENCIA / RECEPCIÓN) -->
+    <div id="modal-checkin-web" class="seccion-oculta fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div class="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl">
+            <div class="flex justify-between items-center mb-5">
+                <h3 class="text-xl font-bold text-white"><i class="fa-solid fa-car text-amber-400 mr-2"></i>Registrar Ingreso Manual</h3>
+                <button onclick="document.getElementById('modal-checkin-web').classList.add('seccion-oculta')" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark text-xl"></i></button>
+            </div>
+            <form onsubmit="guardarCheckinWeb(event)" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Placa del Vehículo</label>
+                    <input type="text" id="chk-placa" required placeholder="Ej: AB123CD" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white uppercase font-bold focus:outline-none focus:border-brand-500">
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Marca</label>
+                        <input type="text" id="chk-marca" required placeholder="Ej: Toyota" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-brand-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Modelo</label>
+                        <input type="text" id="chk-modelo" required placeholder="Ej: Corolla" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-brand-500">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Puesto Disponible</label>
+                    <select id="chk-puesto" required class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-brand-500"></select>
+                </div>
+                <div class="flex justify-end space-x-3 pt-4">
+                    <button type="button" onclick="document.getElementById('modal-checkin-web').classList.add('seccion-oculta')" class="px-4 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-sm font-semibold">Cancelar</button>
+                    <button type="submit" class="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 text-sm font-bold">Confirmar Ingreso</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL CREAR / EDITAR USUARIO -->
+    <div id="modal-usuario" class="seccion-oculta fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div class="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl">
+            <div class="flex justify-between items-center mb-6">
+                <h3 id="modal-usuario-titulo" class="text-xl font-bold text-white">Nuevo Usuario</h3>
+                <button onclick="cerrarModalUsuario()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark text-xl"></i></button>
+            </div>
+            <form id="form-usuario" onsubmit="guardarUsuarioModal(event)" class="space-y-4">
+                <input type="hidden" id="inp-user-id">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Nombre de Usuario</label>
+                    <input type="text" id="inp-username" required class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-brand-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Rol en el Sistema</label>
+                    <select id="inp-rol" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-brand-500">
+                        <option value="operador">Operador / Parkero (App Móvil)</option>
+                        <option value="admin">Administrador (Acceso Total)</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Contraseña</label>
+                    <input type="password" id="inp-password" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-brand-500" placeholder="••••••••">
+                    <p id="ayuda-password" class="text-xs text-slate-500 mt-1 hidden">Déjalo en blanco si no deseas cambiar la contraseña actual.</p>
+                </div>
+                <div class="flex justify-end space-x-3 pt-4">
+                    <button type="button" onclick="cerrarModalUsuario()" class="px-4 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-sm font-semibold">Cancelar</button>
+                    <button type="submit" class="px-5 py-2.5 rounded-xl bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold">Guardar Cambios</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL GALERÍA DE EVIDENCIAS POR TICKET -->
+    <div id="modal-evidencias-ticket" class="seccion-oculta fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div class="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-2xl p-6 shadow-2xl">
+            <div class="flex justify-between items-center mb-4">
+                <h3 id="titulo-modal-evidencia" class="text-xl font-bold text-white">Evidencias del Vehículo</h3>
+                <button onclick="document.getElementById('modal-evidencias-ticket').classList.add('seccion-oculta')" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark text-xl"></i></button>
+            </div>
+            <div id="contenedor-fotos-ticket" class="grid grid-cols-1 sm:grid-cols-2 gap-4 max-h-[70vh] overflow-y-auto p-1"></div>
+        </div>
+    </div>
+
+    <!-- MODAL LIGHTBOX (VISOR DE IMAGEN Y QR EN PANTALLA COMPLETA) -->
+    <div id="modal-lightbox" onclick="cerrarLightbox()" class="seccion-oculta fixed inset-0 bg-black/90 backdrop-blur-md flex flex-col items-center justify-center z-[80] p-4 cursor-zoom-out">
+        <img id="img-lightbox" src="" class="max-w-full max-h-[82vh] rounded-2xl shadow-2xl border border-slate-700 object-contain">
+        <p id="caption-lightbox" class="text-sm font-bold text-white mt-4 bg-slate-900/80 px-4 py-1.5 rounded-full border border-slate-700"></p>
+    </div>
+
+    <!-- INPUT OCULTO PARA SUBIR QR DESDE ADMIN WEB -->
+    <input type="file" id="input-subir-qr-web" accept="image/*" class="hidden" onchange="procesarSubidaQrWeb(event)">
+
+    <!-- INCLUIR SHEETJS PARA EXPORTACIÓN EXCEL -->
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+
+    <script>
+        let seccionActiva = 'dashboard';
+        let adminActual = null;
+        let vehiculosActivosCache = [];
+        let historialCache = [];
+        let auditoriaCache = [];
+        let filtroTipoMedia = 'TODOS';
+        let userIdParaQrWeb = null;
+
+        // --- SISTEMA DE NOTIFICACIONES TOAST ---
+        function mostrarToast(mensaje, tipo = 'exito') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            const colores = tipo === 'exito'
+                ? 'bg-emerald-600 border-emerald-400 text-white'
+                : 'bg-red-600 border-red-400 text-white';
+            const icono = tipo === 'exito' ? 'fa-circle-check' : 'fa-circle-exclamation';
+
+            toast.className = `${colores} border px-4 py-3 rounded-xl shadow-2xl flex items-center space-x-3 text-sm font-semibold pointer-events-auto transition-all duration-300`;
+            toast.innerHTML = `<i class="fa-solid ${icono} text-lg"></i><span>${mensaje}</span>`;
+            container.appendChild(toast);
+
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                setTimeout(() => toast.remove(), 300);
+            }, 3500);
+        }
+
+        // --- AUTENTICACIÓN WEB ---
+        function verificarSesionGuardada() {
+            const guardado = sessionStorage.getItem('valet_admin_user');
+            if (guardado) {
+                adminActual = JSON.parse(guardado);
+                document.getElementById('pantalla-login').classList.add('seccion-oculta');
+                document.getElementById('badge-admin-user').innerText = `Admin: ${adminActual.username}`;
+                cargarDatosActivos();
+            }
+        }
+
+        async function iniciarSesionWeb(e) {
+            e.preventDefault();
+            const username = document.getElementById('login-user').value.trim();
+            const password = document.getElementById('login-pass').value.trim();
+            const btn = document.getElementById('btn-login-submit');
+            btn.disabled = true;
+            btn.innerText = 'Verificando...';
+
+            try {
+                const res = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                const data = await res.json();
+
+                if (res.ok && data.success) {
+                    if (data.user.rol !== 'admin') {
+                        mostrarToast('Acceso denegado: Solo administradores pueden entrar al panel web.', 'error');
+                    } else {
+                        adminActual = data.user;
+                        sessionStorage.setItem('valet_admin_user', JSON.stringify(adminActual));
+                        document.getElementById('pantalla-login').classList.add('seccion-oculta');
+                        document.getElementById('badge-admin-user').innerText = `Admin: ${adminActual.username}`;
+                        mostrarToast(`¡Bienvenido, ${adminActual.username}!`);
+                        cargarDatosActivos();
+                    }
+                } else {
+                    mostrarToast(data.error || 'Credenciales incorrectas', 'error');
+                }
+            } catch (err) {
+                mostrarToast('Error de conexión con el servidor', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerText = 'Ingresar al Panel';
+            }
+        }
+
+        function cerrarSesionWeb() {
+            sessionStorage.removeItem('valet_admin_user');
+            adminActual = null;
+            document.getElementById('pantalla-login').classList.remove('seccion-oculta');
+        }
+
+        // --- UTILIDADES ---
+        function extraerNumeroPuesto(id) {
+            return parseInt(String(id).replace(/[^0-9]/g, ''), 10) || 0;
+        }
+
+        function formatearEstadia(fechaIso) {
+            if (!fechaIso) return '-';
+            const entrada = new Date(fechaIso);
+            const horaStr = entrada.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const diffMin = Math.max(0, Math.floor((Date.now() - entrada.getTime()) / 60000));
+            const horas = Math.floor(diffMin / 60);
+            const mins = diffMin % 60;
+            const duracionStr = horas > 0 ? `${horas}h ${mins}m` : `${mins}m`;
+            return `${horaStr} <span class="text-xs text-amber-400 font-semibold ml-1">(${duracionStr})</span>`;
+        }
+
+        function abrirLightbox(url, caption = '') {
+            document.getElementById('img-lightbox').src = url;
+            document.getElementById('caption-lightbox').innerText = caption;
+            document.getElementById('modal-lightbox').classList.remove('seccion-oculta');
+        }
+
+        function cerrarLightbox() {
+            document.getElementById('modal-lightbox').classList.add('seccion-oculta');
+        }
+
+        // --- NAVEGACIÓN ENTRE PESTAÑAS ---
+        function cambiarSeccion(seccion, btn) {
+            seccionActiva = seccion;
+            document.querySelectorAll('.menu-btn').forEach(b => {
+                b.className = "w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-slate-400 hover:bg-slate-700 hover:text-white transition menu-btn";
+            });
+            btn.className = "w-full flex items-center space-x-3 px-4 py-3 rounded-xl bg-brand-500/10 text-brand-400 font-medium border border-brand-500/20 menu-btn";
+
+            ['dashboard', 'mapa', 'historial', 'parkeros', 'auditoria'].forEach(s => {
+                document.getElementById('seccion-' + s).classList.add('seccion-oculta');
+            });
+            document.getElementById('seccion-' + seccion).classList.remove('seccion-oculta');
+
+            document.getElementById('btn-nuevo-usuario').classList.toggle('seccion-oculta', seccion !== 'parkeros');
+
+            const titulos = {
+                'dashboard': 'Panel de Control General',
+                'mapa': 'Plano de Puestos Interactivos',
+                'historial': 'Bitácora de Movimientos y Exportación',
+                'parkeros': 'Administración de Personal y Códigos QR',
+                'auditoria': 'Auditoría Multimedia (Cloudinary)'
+            };
+            document.getElementById('titulo-seccion').innerText = titulos[seccion];
+            cargarDatosActivos();
+        }
+
+        // --- INGRESO MANUAL DE VEHÍCULO DESDE WEB ---
+        async function abrirModalCheckinWeb(puestoPreseleccionado = '') {
+            const res = await fetch('/api/puestos');
+            const puestos = await res.json();
+            const libres = puestos.filter(p => p.estado === 'libre').sort((a, b) => extraerNumeroPuesto(a.id_puesto) - extraerNumeroPuesto(b.id_puesto));
+
+            const select = document.getElementById('chk-puesto');
+            if (!libres.length) {
+                mostrarToast('No hay puestos libres disponibles en este momento.', 'error');
+                return;
+            }
+            select.innerHTML = libres.map(p => `<option value="${p.id_puesto}" ${p.id_puesto === puestoPreseleccionado ? 'selected' : ''}>Puesto ${p.id_puesto}</option>`).join('');
+            document.getElementById('chk-placa').value = '';
+            document.getElementById('chk-marca').value = '';
+            document.getElementById('chk-modelo').value = '';
+            document.getElementById('modal-checkin-web').classList.remove('seccion-oculta');
+        }
+
+        async function guardarCheckinWeb(e) {
+            e.preventDefault();
+            const placa = document.getElementById('chk-placa').value.trim().toUpperCase();
+            const marca = document.getElementById('chk-marca').value.trim();
+            const modelo = document.getElementById('chk-modelo').value.trim();
+            const id_puesto = document.getElementById('chk-puesto').value;
+
+            try {
+                const res = await fetch('/api/checkin', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        placa,
+                        marca,
+                        modelo,
+                        id_puesto,
+                        id_usuario: adminActual ? adminActual.id : 1
+                    })
+                });
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    document.getElementById('modal-checkin-web').classList.add('seccion-oculta');
+                    mostrarToast(`Vehículo ${placa} asignado al puesto ${id_puesto}`);
+                    cargarDatosActivos();
+                } else {
+                    mostrarToast(data.error || 'Error al registrar ingreso', 'error');
+                }
+            } catch (err) {
+                mostrarToast('Error de red al registrar vehículo', 'error');
+            }
+        }
+
+        // --- GESTIÓN DE USUARIOS Y SUBIDA DE QR DESDE WEB ---
+        function abrirModalUsuario(id = '', username = '', rol = 'operador') {
+            document.getElementById('inp-user-id').value = id;
+            document.getElementById('inp-username').value = username;
+            document.getElementById('inp-rol').value = (rol === 'valet') ? 'operador' : rol;
+            document.getElementById('inp-password').value = '';
+
+            const esEdicion = id !== '';
+            document.getElementById('modal-usuario-titulo').innerText = esEdicion ? `Editar Usuario: ${username}` : 'Registrar Nuevo Personal';
+            document.getElementById('inp-password').required = !esEdicion;
+            document.getElementById('ayuda-password').classList.toggle('hidden', !esEdicion);
+
+            document.getElementById('modal-usuario').classList.remove('seccion-oculta');
+        }
+
+        function cerrarModalUsuario() {
+            document.getElementById('modal-usuario').classList.add('seccion-oculta');
+        }
+
+        async function guardarUsuarioModal(e) {
+            e.preventDefault();
+            const id = document.getElementById('inp-user-id').value;
+            const username = document.getElementById('inp-username').value.trim();
+            const rol = document.getElementById('inp-rol').value;
+            const password = document.getElementById('inp-password').value.trim();
+
+            try {
+                const url = id === '' ? '/api/usuarios' : `/api/usuarios/${id}/admin-edit`;
+                const method = id === '' ? 'POST' : 'PUT';
+                const body = id === '' ? { username, password, rol } : { username, rol, new_password: password };
+
+                const response = await fetch(url, {
+                    method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                const result = await response.json();
+
+                if (response.ok) {
+                    cerrarModalUsuario();
+                    mostrarToast(id === '' ? 'Usuario registrado con éxito' : 'Datos del usuario actualizados');
+                    cargarDatosActivos();
+                } else {
+                    mostrarToast(result.error || 'No se pudo guardar el usuario', 'error');
+                }
+            } catch (error) {
+                mostrarToast('Error de conexión con el servidor', 'error');
+            }
+        }
+
+        async function eliminarUsuario(idUsuario, nombreUsuario) {
+            if (!confirm(`¿Confirmas eliminar el acceso de "${nombreUsuario}"?`)) return;
+            try {
+                const response = await fetch(`/api/usuarios/${idUsuario}`, { method: 'DELETE' });
+                const result = await response.json();
+                if (response.ok) {
+                    mostrarToast(`Usuario ${nombreUsuario} eliminado`);
+                    cargarDatosActivos();
+                } else {
+                    mostrarToast(result.error || 'No se pudo eliminar', 'error');
+                }
+            } catch (error) {
+                mostrarToast('Error de conexión al intentar eliminar', 'error');
+            }
+        }
+
+        function seleccionarArchivoQrWeb(userId) {
+            userIdParaQrWeb = userId;
+            document.getElementById('input-subir-qr-web').click();
+        }
+
+        async function procesarSubidaQrWeb(event) {
+            const file = event.target.files[0];
+            if (!file || !userIdParaQrWeb) return;
+
+            const formData = new FormData();
+            formData.append('qr', file);
+            mostrarToast('Subiendo imagen QR a Cloudinary...');
+
+            try {
+                const res = await fetch(`/api/usuarios/${userIdParaQrWeb}/qr`, {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    mostrarToast('Código QR actualizado correctamente');
+                    cargarDatosActivos();
+                } else {
+                    mostrarToast(data.error || 'Error al subir el QR', 'error');
+                }
+            } catch (e) {
+                mostrarToast('Error de red subiendo el QR', 'error');
+            } finally {
+                event.target.value = '';
+            }
+        }
+
+        // --- ACCIONES DE VEHÍCULOS Y EVIDENCIAS ---
+        async function verEvidenciasTicket(idTicket, placa) {
+            document.getElementById('titulo-modal-evidencia').innerText = `Evidencias del Vehículo: ${placa}`;
+            const contenedor = document.getElementById('contenedor-fotos-ticket');
+            contenedor.innerHTML = `<p class="col-span-2 text-center text-slate-400 py-8">Cargando multimedia desde Cloudinary...</p>`;
+            document.getElementById('modal-evidencias-ticket').classList.remove('seccion-oculta');
+
+            try {
+                const res = await fetch(`/api/tickets/${idTicket}/multimedia`);
+                const fotos = await res.json();
+                if (!fotos.length) {
+                    contenedor.innerHTML = `<p class="col-span-2 text-center text-slate-500 py-8">Este vehículo se registró sin fotos ni videos.</p>`;
+                    return;
+                }
+                contenedor.innerHTML = fotos.map(f => {
+                    const esVideo = f.ruta_foto.includes('.mp4') || f.ruta_foto.includes('/video/') || f.ruta_foto.includes('.mov') || f.ruta_foto.includes('.webm');
+                    return esVideo
+                        ? `<video src="${f.ruta_foto}" controls class="w-full h-56 object-cover rounded-xl border border-slate-700 bg-black"></video>`
+                        : `<img src="${f.ruta_foto}" onclick="abrirLightbox('${f.ruta_foto}', 'Evidencia Placa ${placa}')" class="w-full h-56 object-cover rounded-xl border border-slate-700 hover:opacity-90 transition cursor-zoom-in">`;
+                }).join('');
+            } catch (e) {
+                contenedor.innerHTML = `<p class="col-span-2 text-center text-red-400 py-8">Error al cargar multimedia.</p>`;
+            }
+        }
+
+        async function entregarVehiculoWeb(idTicket, idPuesto, placa) {
+            if (!confirm(`¿Confirmas liberar el puesto ${idPuesto} y marcar como ENTREGADO el vehículo ${placa}?`)) return;
+            try {
+                const res = await fetch('/api/checkout', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id_ticket: idTicket, id_puesto: idPuesto })
+                });
+                if (res.ok) {
+                    mostrarToast(`Vehículo ${placa} entregado y puesto ${idPuesto} libre`);
+                    cargarDatosActivos();
+                } else {
+                    mostrarToast('No se pudo procesar la salida', 'error');
+                }
+            } catch (e) {
+                mostrarToast('Error de red al liberar puesto', 'error');
+            }
+        }
+
+        function renderizarTablaVehiculos(lista) {
+            const tbody = document.getElementById('tabla-vehiculos');
+            if (!lista.length) {
+                tbody.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-slate-500">No hay vehículos estacionados que coincidan con el filtro.</td></tr>`;
+                return;
+            }
+            tbody.innerHTML = lista.map(v => `
+                <tr class="hover:bg-slate-700/20 transition">
+                    <td class="p-3.5 font-bold text-white">${v.placa} <span class="block text-xs font-normal text-slate-400">${v.marca || ''} ${v.modelo || ''}</span></td>
+                    <td class="p-3.5"><span class="bg-slate-700 px-2.5 py-1 rounded-lg text-amber-400 font-mono font-bold">${v.id_puesto}</span></td>
+                    <td class="p-3.5 text-slate-300">${formatearEstadia(v.hora_ingreso)}</td>
+                    <td class="p-3.5 text-indigo-400 font-medium"><i class="fa-solid fa-user-tag text-xs mr-1.5"></i>${v.parkero_responsable || 'Recepción'}</td>
+                    <td class="p-3.5">
+                        <button onclick="verEvidenciasTicket(${v.id_ticket}, '${v.placa}')" class="text-xs px-2.5 py-1 rounded-lg border ${v.total_evidencias > 0 ? 'bg-brand-500/10 text-brand-400 border-brand-500/30 hover:bg-brand-500 hover:text-white' : 'bg-slate-800 text-slate-500 border-slate-700'} transition">
+                            <i class="fa-solid fa-camera mr-1"></i> ${v.total_evidencias || 0} archivos
+                        </button>
+                    </td>
+                    <td class="p-3.5 text-right">
+                        <button onclick="entregarVehiculoWeb(${v.id_ticket}, '${v.id_puesto}', '${v.placa}')" class="bg-amber-500/20 text-amber-400 hover:bg-amber-500 hover:text-slate-950 px-3 py-1.5 rounded-lg text-xs font-bold transition">
+                            <i class="fa-solid fa-right-from-bracket mr-1"></i> Entregar
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function filtrarTablaVehiculosWeb() {
+            const q = document.getElementById('buscador-vehiculos-web').value.toLowerCase().trim();
+            const filtrados = vehiculosActivosCache.filter(v =>
+                (v.placa || '').toLowerCase().includes(q) ||
+                (v.marca || '').toLowerCase().includes(q) ||
+                (v.id_puesto || '').toLowerCase().includes(q) ||
+                (v.parkero_responsable || '').toLowerCase().includes(q)
+            );
+            renderizarTablaVehiculos(filtrados);
+        }
+
+        // --- HISTORIAL Y EXPORTACIÓN A EXCEL (XLSX) ---
+        async function cargarHistorialWeb() {
+            const search = document.getElementById('hist-search').value.trim();
+            const fecha = document.getElementById('hist-fecha').value;
+            const accion = document.getElementById('hist-accion').value;
+
+            let url = `/api/historial?accion=${accion}`;
+            if (fecha) url += `&fecha=${fecha}`;
+            if (search) url += `&search=${encodeURIComponent(search)}`;
+
+            const res = await fetch(url);
+            historialCache = await res.json();
+            const tbody = document.getElementById('tabla-historial-web');
+
+            if (!historialCache.length) {
+                tbody.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-slate-500">No se encontraron movimientos con estos filtros.</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = historialCache.map(h => {
+                const esIngreso = h.accion === 'INGRESO';
+                const fechaLocal = new Date(h.fecha_hora).toLocaleString();
+                return `
+                    <tr class="hover:bg-slate-700/20 transition">
+                        <td class="p-3.5">
+                            <span class="px-2.5 py-1 rounded-md text-xs font-bold ${esIngreso ? 'bg-emerald-500/15 text-emerald-400' : 'bg-amber-500/15 text-amber-400'}">
+                                <i class="fa-solid ${esIngreso ? 'fa-arrow-right-to-bracket' : 'fa-arrow-right-from-bracket'} mr-1"></i>${h.accion}
+                            </span>
+                        </td>
+                        <td class="p-3.5 font-bold text-white">${h.placa} <span class="block text-xs font-normal text-slate-400">${h.marca || ''} ${h.modelo || ''}</span></td>
+                        <td class="p-3.5"><span class="bg-slate-700 px-2 py-0.5 rounded text-amber-400 font-mono text-xs font-bold">${h.id_puesto}</span></td>
+                        <td class="p-3.5 text-indigo-400">${h.operador || 'Sistema'}</td>
+                        <td class="p-3.5 text-xs text-slate-300">${fechaLocal}</td>
+                        <td class="p-3.5 text-right">
+                            <button onclick="verEvidenciasTicket(${h.id_ticket}, '${h.placa}')" class="bg-slate-700 hover:bg-brand-500 text-slate-200 hover:text-white px-3 py-1 rounded-lg text-xs transition">
+                                <i class="fa-solid fa-images mr-1"></i> Ver Fotos
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function exportarHistorialExcel() {
+            if (!historialCache || !historialCache.length) {
+                mostrarToast('No hay datos en la tabla para exportar', 'error');
+                return;
+            }
+
+            const wb = XLSX.utils.book_new();
+            
+            // Format data for Excel
+            const excelData = historialCache.map(h => ({
+                'ID Movimiento': h.id_movimiento,
+                'ID Ticket': h.id_ticket,
+                'Acción': h.accion,
+                'Placa': h.placa || '',
+                'Marca': h.marca || '',
+                'Modelo': h.modelo || '',
+                'Puesto': h.id_puesto || '',
+                'Operador Responsable': h.operador || 'Sin asignar',
+                'Fecha y Hora': new Date(h.fecha_hora).toLocaleString()
+            }));
+
+            // Create worksheet
+            const ws = XLSX.utils.json_to_sheet(excelData);
+            
+            // Apply professional styling (column widths)
+            const wscols = [
+                {wch: 15}, // ID Movimiento
+                {wch: 12}, // ID Ticket
+                {wch: 12}, // Acción
+                {wch: 15}, // Placa
+                {wch: 15}, // Marca
+                {wch: 15}, // Modelo
+                {wch: 10}, // Puesto
+                {wch: 25}, // Operador
+                {wch: 25}, // Fecha y Hora
+            ];
+            ws['!cols'] = wscols;
+
+            // Add worksheet to workbook
+            XLSX.utils.book_append_sheet(wb, ws, "Bitácora de Movimientos");
+            
+            // Download file
+            XLSX.writeFile(wb, `Reporte_ValetPro_${new Date().toISOString().slice(0, 10)}.xlsx`);
+            mostrarToast('Reporte Excel descargado correctamente');
+        }
+
+        // --- FILTROS DE AUDITORÍA MULTIMEDIA ---
+        function setFiltroMedia(tipo, btn) {
+            filtroTipoMedia = tipo;
+            document.querySelectorAll('.btn-filtro-media').forEach(b => {
+                b.className = "px-3.5 py-1.5 rounded-lg text-xs font-bold bg-slate-900 text-slate-400 hover:text-white btn-filtro-media";
+            });
+            btn.className = "px-3.5 py-1.5 rounded-lg text-xs font-bold bg-brand-500 text-white btn-filtro-media";
+            filtrarAuditoriaWeb();
+        }
+
+        function filtrarAuditoriaWeb() {
+            const q = (document.getElementById('buscador-auditoria')?.value || '').toLowerCase().trim();
+            const grid = document.getElementById('grid-evidencias');
+
+            const filtrados = auditoriaCache.filter(e => {
+                const isVideo = e.ruta_foto.includes('.mp4') || e.ruta_foto.includes('/video/') || e.ruta_foto.includes('.mov') || e.ruta_foto.includes('.webm');
+                if (filtroTipoMedia === 'FOTOS' && isVideo) return false;
+                if (filtroTipoMedia === 'VIDEOS' && !isVideo) return false;
+                return (e.placa || '').toLowerCase().includes(q) || (e.parkero || '').toLowerCase().includes(q);
+            });
+
+            if (!filtrados.length) {
+                grid.innerHTML = "<p class='col-span-4 text-center text-slate-500 py-10'>No se encontraron evidencias con ese criterio.</p>";
+                return;
+            }
+
+            grid.innerHTML = filtrados.map(e => {
+                const isVideo = e.ruta_foto.includes('.mp4') || e.ruta_foto.includes('/video/') || e.ruta_foto.includes('.mov') || e.ruta_foto.includes('.webm');
+                const mediaHtml = isVideo
+                    ? `<video src="${e.ruta_foto}" controls class="w-full h-44 object-cover bg-black"></video>`
+                    : `<img src="${e.ruta_foto}" onclick="abrirLightbox('${e.ruta_foto}', 'Placa: ${e.placa} (${e.parkero || 'Operador'})')" class="w-full h-44 object-cover hover:opacity-90 transition cursor-zoom-in">`;
+
+                return `
+                    <div class="bg-slate-800 rounded-2xl overflow-hidden border border-slate-700 shadow-lg flex flex-col justify-between">
+                        ${mediaHtml}
+                        <div class="p-4">
+                            <div class="flex justify-between items-center mb-1">
+                                <h4 class="font-black text-lg text-white">${e.placa}</h4>
+                                <span class="text-xs text-slate-400">${e.marca || ''}</span>
+                            </div>
+                            <p class="text-xs bg-slate-900 inline-block px-2.5 py-1 rounded-lg text-indigo-400 border border-slate-700 mt-2">
+                                <i class="fa-solid fa-user-check mr-1"></i> ${e.parkero || 'Sin asignar'}
+                            </p>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // --- CARGA PRINCIPAL DE DATOS ---
+        async function cargarDatosActivos(mostrarAviso = false) {
+            if (!adminActual) return;
+            document.getElementById('subtitulo-actualizacion').innerText = 'Última sincronización: ' + new Date().toLocaleTimeString();
+
+            if (seccionActiva === 'dashboard') {
+                const res = await fetch('/api/admin/stats');
+                const data = await res.json();
+                const ocu = Number(data.ocupados || 0);
+                const lib = Number(data.libres || 0);
+                const total = ocu + lib;
+                const pct = total > 0 ? Math.round((ocu / total) * 100) : 0;
+
+                document.getElementById('st-ocupados').innerText = ocu;
+                document.getElementById('st-libres').innerText = lib;
+                document.getElementById('st-ingresos').innerText = data.ingresos_hoy ?? 0;
+                document.getElementById('st-valets').innerText = data.valets_activos ?? 0;
+
+                // Actualizar barra de capacidad
+                document.getElementById('txt-porcentaje-ocupacion').innerText = `${pct}% (${ocu}/${total} puestos)`;
+                const barra = document.getElementById('barra-ocupacion');
+                barra.style.width = `${pct}%`;
+                barra.className = `h-full rounded-full transition-all duration-500 ${pct > 85 ? 'bg-red-500' : pct > 60 ? 'bg-amber-500' : 'bg-emerald-500'}`;
+
+                const resVeh = await fetch('/api/admin/vehiculos-activos');
+                vehiculosActivosCache = await resVeh.json();
+                filtrarTablaVehiculosWeb();
+            }
+
+            if (seccionActiva === 'mapa') {
+                const res = await fetch('/api/puestos');
+                const puestos = await res.json();
+
+                const ladoA = puestos.filter(p => String(p.id_puesto).startsWith('A')).sort((a, b) => extraerNumeroPuesto(a.id_puesto) - extraerNumeroPuesto(b.id_puesto));
+                const ladoB = puestos.filter(p => String(p.id_puesto).startsWith('B')).sort((a, b) => extraerNumeroPuesto(a.id_puesto) - extraerNumeroPuesto(b.id_puesto));
+
+                const renderPuestoCard = (p) => {
+                    const ocu = p.estado === 'ocupado';
+                    const accionClick = ocu
+                        ? `verEvidenciasTicket(${p.id_ticket}, '${p.placa}')`
+                        : `abrirModalCheckinWeb('${p.id_puesto}')`;
+
+                    return `
+                        <div onclick="${accionClick}" class="cursor-pointer p-5 rounded-2xl border ${ocu ? 'bg-amber-500/10 border-amber-500/30 hover:border-amber-400' : 'bg-emerald-500/10 border-emerald-500/30 hover:border-emerald-400'} flex flex-col items-center justify-center text-center transition hover:scale-[1.03]">
+                            <i class="fa-solid fa-car text-2xl ${ocu ? 'text-amber-500' : 'text-emerald-500/40'} mb-2"></i>
+                            <h4 class="text-lg font-black ${ocu ? 'text-amber-400' : 'text-emerald-400'}">${p.id_puesto}</h4>
+                            <span class="text-xs font-bold mt-1 px-2.5 py-0.5 rounded ${ocu ? 'bg-slate-900 text-white' : 'text-emerald-300/70'}">${ocu ? p.placa : 'LIBRE'}</span>
+                        </div>
+                    `;
+                };
+
+                document.getElementById('grid-puestos-a').innerHTML = ladoA.map(renderPuestoCard).join('');
+                document.getElementById('grid-puestos-b').innerHTML = ladoB.map(renderPuestoCard).join('');
+            }
+
+            if (seccionActiva === 'historial') {
+                await cargarHistorialWeb();
+            }
+
+            if (seccionActiva === 'parkeros') {
+                const res = await fetch('/api/admin/valets');
+                const park = await res.json();
+
+                document.getElementById('tabla-parkeros').innerHTML = park.map(p => {
+                    const esAdmin = p.rol === 'admin';
+                    const tieneQr = p.qr_url && p.qr_url.trim() !== '';
+                    const inicial = (p.username || 'U')[0].toUpperCase();
+                    return `
+                        <tr class="hover:bg-slate-700/20 transition">
+                            <td class="p-3.5 font-bold text-white flex items-center space-x-3">
+                                <div class="w-9 h-9 rounded-full bg-brand-500/20 border border-brand-500/40 text-brand-400 flex items-center justify-center font-black text-sm">${inicial}</div>
+                                <div>
+                                    <span>${p.username}</span>
+                                    <span class="block text-[11px] text-slate-500 font-mono">ID #${p.id}</span>
+                                </div>
+                            </td>
+                            <td class="p-3.5">
+                                <span class="px-2.5 py-1 rounded-md text-xs font-bold uppercase ${esAdmin ? 'bg-amber-500/20 text-amber-400' : 'bg-sky-500/20 text-sky-400'}">
+                                    ${p.rol}
+                                </span>
+                            </td>
+                            <td class="p-3.5 space-x-2">
+                                ${tieneQr
+                                    ? `<button onclick="abrirLightbox('${p.qr_url}', 'QR Pago Móvil - ${p.username}')" class="text-xs bg-emerald-500/15 text-emerald-400 px-2.5 py-1 rounded-lg hover:bg-emerald-500 hover:text-white transition"><i class="fa-solid fa-qrcode mr-1"></i>Ver QR</button>`
+                                    : `<span class="text-xs text-slate-500">Sin QR</span>`}
+                                <button onclick="seleccionarArchivoQrWeb(${p.id})" class="text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 px-2.5 py-1 rounded-lg transition" title="Subir o cambiar QR">
+                                    <i class="fa-solid fa-upload"></i>
+                                </button>
+                            </td>
+                            <td class="p-3.5">
+                                ${p.estado_conexion === 'activo'
+                                    ? '<span class="inline-flex items-center text-xs text-emerald-400 font-semibold"><span class="w-2 h-2 rounded-full bg-emerald-400 mr-1.5"></span>En línea</span>'
+                                    : '<span class="text-xs text-slate-500">Inactivo</span>'}
+                            </td>
+                            <td class="p-3.5 font-black text-brand-400 text-lg">${p.autos_atendidos_hoy || 0}</td>
+                            <td class="p-3.5 text-right space-x-2">
+                                <button onclick="abrirModalUsuario(${p.id}, '${p.username}', '${p.rol}')" class="bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500 hover:text-white px-3 py-1.5 rounded-lg transition text-xs font-semibold">
+                                    <i class="fa-solid fa-pen mr-1"></i> Editar
+                                </button>
+                                ${p.id !== 1 ? `
+                                <button onclick="eliminarUsuario(${p.id}, '${p.username}')" class="bg-red-500/20 text-red-400 hover:bg-red-500 hover:text-white px-3 py-1.5 rounded-lg transition text-xs font-semibold">
+                                    <i class="fa-solid fa-trash"></i>
+                                </button>` : ''}
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+
+            if (seccionActiva === 'auditoria') {
+                const res = await fetch('/api/admin/evidencias-globales');
+                auditoriaCache = await res.json();
+                filtrarAuditoriaWeb();
+            }
+
+            if (mostrarAviso) mostrarToast('Datos sincronizados');
+        }
+
+        verificarSesionGuardada();
+        setInterval(() => cargarDatosActivos(false), 30000);
+    </script>
+</body>
+</html>
